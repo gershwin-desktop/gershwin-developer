@@ -1,5 +1,5 @@
 diff --git a/src/event/event_kevent.c b/src/event/event_kevent.c
-index eb80082..e9f3cee 100644
+index d271094..abfce9d 100644
 --- a/src/event/event_kevent.c
 +++ b/src/event/event_kevent.c
 @@ -61,6 +61,31 @@ DISPATCH_STATIC_GLOBAL(struct dispatch_muxnote_bucket_s _dispatch_sources[DSL_HA
@@ -48,7 +48,7 @@ index eb80082..e9f3cee 100644
  		(void)avail;
 -		const struct timespec timeout_immediately = {}, *timeout = NULL;
 -		if (flags & KEVENT_FLAG_IMMEDIATE) timeout = &timeout_immediately;
-+		// On non-QOS systems (FreeBSD, Linux), add a minimum 1ms delay 
++		// On non-QOS systems (FreeBSD, Linux), add a minimum 1ms delay
 +		// when polling to prevent busy-wait loops that consume excessive CPU.
 +		// Without this, kevent() with zero timeout returns immediately even
 +		// when there are no events, creating a tight spin loop.
@@ -61,7 +61,7 @@ index eb80082..e9f3cee 100644
  		r = kevent(kqfd, ke, n, ke_out, n_out, timeout);
  #endif
  #if DISPATCH_USE_KEVENT_WORKLOOP
-@@ -2399,17 +2433,45 @@ _dispatch_event_loop_timer_arm(dispatch_timer_heap_t dth, uint32_t tidx,
+@@ -2399,14 +2433,45 @@ _dispatch_event_loop_timer_arm(dispatch_timer_heap_t dth, uint32_t tidx,
  		dispatch_timer_delay_s range, dispatch_clock_now_cache_t nows)
  {
  	dispatch_clock_t clock = DISPATCH_TIMER_CLOCK(tidx);
@@ -107,19 +107,16 @@ index eb80082..e9f3cee 100644
  	}
 -#if !NOTE_ABSOLUTE
 -	target = range.delay;
--#if defined(__OpenBSD__)
--	target /= 1000000;
--#endif
 -#endif
  
  	_dispatch_event_loop_timer_program(dth, tidx, target, range.leeway,
  			EV_ADD | EV_ENABLE);
 diff --git a/src/event/workqueue.c b/src/event/workqueue.c
-index 1234567..abcdefg 100644
+index 07cc17b..57a0dc8 100644
 --- a/src/event/workqueue.c
 +++ b/src/event/workqueue.c
 @@ -326,7 +326,7 @@ _dispatch_workq_count_runnable_workers(dispatch_workq_monitor_t mon)
-
+ 
  	for (int i = 0; i < mon->num_registered_tids; ++i) {
  		dispatch_tid tid = mon->registered_tids[i];
 -		for (int j = 0; i < count; ++i) {
