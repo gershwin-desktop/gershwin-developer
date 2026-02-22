@@ -14,7 +14,6 @@ export REPOS_DIR="$WORKDIR/repos"
 
 cd "$REPOS_DIR/gershwin-system"
 $MAKE_CMD install
-. /System/Library/Preferences/GNUstep.conf
 export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
 cd "$REPOS_DIR/gershwin-assets"
@@ -54,8 +53,8 @@ echo "Building/installing tools-make..."
 cd "$REPOS_DIR/tools-make"
 $MAKE_CMD distclean 2>/dev/null || true
 ./configure \
-  --enable-importing-config-file \
   --with-config-file=/System/Library/Preferences/GNUstep.conf \
+  --with-layout=gershwin \
   --with-library-combo=ng-gnu-gnu \
   --with-objc-lib-flag=" " \
   LDFLAGS="-L/System/Library/Libraries" \
