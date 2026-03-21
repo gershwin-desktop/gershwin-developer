@@ -51,3 +51,4 @@ libxcomposite-dev
 libsquashfs-dev
 autoconf
 automake
+rpcbind
