@@ -22,11 +22,11 @@ After installing, configuring the above requirements run the following commands 
 
 ```
 #  Get the rest of the requirements for building
-git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer && cd /Developer
+git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
 /Developer/Library/Scripts/Bootstrap.sh
 /Developer/Library/Scripts/Checkout.sh
 # Build and install Gershwin from sources
-sudo make install
+cd /Developer && make install
 ```
 
 To remove Gershwin installed from sources run the following:
