@@ -63,10 +63,10 @@ if [ "$PINNED" -eq 1 ]; then
     # These are upstream libraries, we pin them in order to not develop for a moving target
     checkout_commit libobjc2                     4148a3d
     checkout_commit libs-back                    bf3b3ce # Patch by okt
-    checkout_commit libs-base                    050c6cc
+    checkout_commit libs-base                    caa0816
     checkout_commit libs-gui                     8be638c
     checkout_commit swift-corelibs-libdispatch   4876f91
-    checkout_commit tools-make                   8964f83
+    checkout_commit tools-make                   50cf961
 fi
 
 # The following do not seeem to be causing showstoppers currently
