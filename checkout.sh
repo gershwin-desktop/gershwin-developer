@@ -65,7 +65,7 @@ if [ "$PINNED" -eq 1 ]; then
     checkout_commit libs-back                    bf3b3ce # Patch by okt
     checkout_commit libs-base                    050c6cc
     checkout_commit libs-gui                     8be638c
-    checkout_commit swift-corelibs-libdispatch   ac3302c
+    checkout_commit swift-corelibs-libdispatch   4876f91
     checkout_commit tools-make                   8964f83
 fi
 
