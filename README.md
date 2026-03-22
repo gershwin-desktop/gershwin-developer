@@ -29,10 +29,10 @@ git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
 cd /Developer && make install
 ```
 
-To remove Gershwin installed from sources run the following:
+To remove Gershwin installed from sources run the following as root or with sudo:
 
 ```
-make uninstall
+cd /Developer && make uninstall
 ```
 
 ## Requirements for usage
