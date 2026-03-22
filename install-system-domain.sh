@@ -94,6 +94,7 @@ echo "Patching libs-base..."
 
 cd "$REPOS_DIR/libs-base"
 ./configure \
+  --enable-nxconstantstring \
   --with-dispatch-include=/System/Library/Headers \
   --with-dispatch-library=/System/Library/Libraries
 $MAKE_CMD -j"$CPUS" || exit 1
