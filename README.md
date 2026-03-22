@@ -1,4 +1,4 @@
-# gershwin-build
+# gershwin-developer
 
 This is intended for Gershwin developers only.  For more stable packaging with applied defaults use GhostBSD.
 
@@ -18,13 +18,13 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 
 ## Building from source, installation and uninstallation
 
-After installing, configuring the above requirements run the following commands:
+After installing, configuring the above requirements run the following commands as root or with sudo:
 
 ```
 #  Get the rest of the requirements for building
-git clone https://github.com/gershwin-desktop/gershwin-build.git && cd gershwin-build
-sudo ./bootstrap.sh
-./checkout.sh
+git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer && cd /Developer
+/Developer/Library/Scripts/Bootstrap.sh
+/Developer/Library/Scripts/Checkout.sh
 # Build and install Gershwin from sources
 sudo make install
 ```
@@ -32,7 +32,7 @@ sudo make install
 To remove Gershwin installed from sources run the following:
 
 ```
-sudo make uninstall
+make uninstall
 ```
 
 ## Requirements for usage

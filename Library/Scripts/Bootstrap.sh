@@ -20,7 +20,7 @@ fi
 
 echo "Detected OS: $OS_ID"
 
-REQUIREMENTS_FILE="requirements/${OS_ID}.txt"
+REQUIREMENTS_FILE="Library/OSSupport/${OS_ID}.txt"
 
 if [ ! -f "$REQUIREMENTS_FILE" ]; then
     echo "No requirements file found for OS: $OS_ID"

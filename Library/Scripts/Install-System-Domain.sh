@@ -6,11 +6,11 @@ if [ "$FROM_MAKEFILE" != "1" ]; then
     exit 1
 fi
 
-. ./functions.sh
+. ./Library/Scripts/Functions.sh
 detect_platform
 export_vars
 
-export REPOS_DIR="$WORKDIR/repos"
+export REPOS_DIR="$WORKDIR/Library/Sources"
 
 cd "$REPOS_DIR/gershwin-system"
 $MAKE_CMD install
@@ -21,7 +21,7 @@ cp -R Library/* /System/Library/
 
 # Patch libdispatch
 echo "Patching libdispatch..."
-( cd "$REPOS_DIR" && ./apply_swift-corelibs-libdispatch_patch.sh )
+( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/swift-corelibs-libdispatch" sh ./apply_swift-corelibs-libdispatch_patch.sh )
 
 # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
 echo "Building/installing libdispatch..."
@@ -90,7 +90,7 @@ export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
 # Patch libdispatch
 echo "Patching libs-base..."
-( cd "$REPOS_DIR" && ./apply_nsrunloop_patch.sh )
+( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-base" sh ./apply_nsrunloop_patch.sh )
 
 cd "$REPOS_DIR/libs-base"
 ./configure \

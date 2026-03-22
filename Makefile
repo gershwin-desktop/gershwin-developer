@@ -11,7 +11,7 @@ system: check_root
 		echo "Gershwin System Domain appears to be already installed."; \
 	else \
 		echo "Installing GNUstep System Domain..."; \
-		FROM_MAKEFILE=1 sh ./install-system-domain.sh; \
+		FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh; \
 	fi
 
 uninstall: check_root
