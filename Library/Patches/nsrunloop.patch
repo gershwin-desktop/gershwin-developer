@@ -1,7 +1,7 @@
-diff --git a/patches/NSRunLoop.m b/patches/NSRunLoop.m
+diff --git a/Source/NSRunLoop.m b/Source/NSRunLoop.m
 index 9406da00..70488a1b 100644
---- a/patches/NSRunLoop.m
-+++ b/patches/NSRunLoop.m
+--- a/Source/NSRunLoop.m
++++ b/Source/NSRunLoop.m
 @@ -49,6 +49,8 @@
  
  #import "GSPrivate.h"
