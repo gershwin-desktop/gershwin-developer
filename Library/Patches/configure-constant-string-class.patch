@@ -1,0 +1,30 @@
+--- a/configure
++++ b/configure
+@@ -9241,6 +9241,9 @@
+ if test "$OBJC_RUNTIME_LIB" = "nx" -o "$OBJC_RUNTIME_LIB" = "apple"; then
+   NX_CONST_STRING_OBJCFLAGS=""
+   NX_CONST_STRING_CLASS=NXConstantString
++elif test "$OBJC_RUNTIME_LIB" = "ng"; then
++  NX_CONST_STRING_OBJCFLAGS="-fconstant-string-class=NSConstantString"
++  NX_CONST_STRING_CLASS=NSConstantString
+ else
+   strclass_CPPFLAGS="$CPPFLAGS"
+   CPPFLAGS="$CPPFLAGS -fconstant-string-class=FooConstantString"
+@@ -9258,15 +9261,14 @@
+ /* end confdefs.h.  */
+ #include "$srcdir/config/config.constant-string-class.m"
+ _ACEOF
+-if ac_fn_c_try_run "$LINENO"
++if ac_fn_c_try_compile "$LINENO"
+ then :
+   gs_cv_objc_compiler_supports_constant_string_class=yes
+ else case e in #(
+   e) gs_cv_objc_compiler_supports_constant_string_class=no ;;
+ esac
+ fi
+-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+-  conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
++rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
+ esac
+ fi
+ 

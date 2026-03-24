@@ -1,11 +1,11 @@
-# gershwin-build
+# gershwin-developer
 
 This is intended for Gershwin developers only.  For more stable packaging with applied defaults use GhostBSD.
 
 ## Supported Operating Systems
 
 * FreeBSD
-* GhostBSD (requires `sudo pkg install -g 'GhostBSD*-dev'` for building)
+* GhostBSD (requires `pkg install -g 'GhostBSD*-dev'` for building)
 * Arch Linux
 * Artix (Arch Linux without systemd)
 * Debian
@@ -13,26 +13,26 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 
 ## Requirements for building
 
-* sudo or root access
+* root access
 * git (e.g., `pkg install git-lite`) (NOTE: Need to use `/usr/local/bin/git` on FreeBSD freshly installed system when chrooted at the end of the installation)
 
 ## Building from source, installation and uninstallation
 
-After installing, configuring the above requirements run the following commands:
+After installing, configuring the above requirements run the following commands as root:
 
 ```
 #  Get the rest of the requirements for building
-git clone https://github.com/gershwin-desktop/gershwin-build.git && cd gershwin-build
-sudo ./bootstrap.sh
-./checkout.sh
+git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
+/Developer/Library/Scripts/Bootstrap.sh
+/Developer/Library/Scripts/Checkout.sh
 # Build and install Gershwin from sources
-sudo make install
+cd /Developer && make install
 ```
 
-To remove Gershwin installed from sources run the following:
+To remove Gershwin installed from sources run the following as root:
 
 ```
-sudo make uninstall
+cd /Developer && make uninstall
 ```
 
 ## Requirements for usage
@@ -59,16 +59,6 @@ or, on FreeBSD/GhostBSD:
 ```
 service loginwindow enable && service loginwindow start
 ```
-
-
-## Additional Notes
-
-> Note for users of `sudo`: You can avoid having to constantly use `sudo -E` flag to instal GNUstep apps you build by putting the following files into your `sudoers.d` directory
-> ```
-> # on FreeBSD
-> sudo echo "Defaults env_keep += \"PATH GNUSTEP_MAKEFILES GNUSTEP_PATHS LD_LIBRARY_PATH DYLD_LIBRARY_PATH OBJC_RUNTIME OBJCFLAGS\"" > /usr/local/etc/sudoers.d/10_gershwin_env_keep
-> sudo echo "Defaults secure_path=\"/System/Library/Tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"" > /usr/local/etc/sudoers.d/10_gershwin_secure_path
-> ```
 
 ## Optional libraries
 * libdbus for waiting for the Global Menu to appear and for implementing the FileManager1 service that lets, e.g., web browsers, open the file manager to show the downloaded files

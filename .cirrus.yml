@@ -19,9 +19,9 @@ build_freebsd_14_amd64_task:
   install_script:
     - pkg update
     - pkg install -y git tree squashfs-tools
-    - ./bootstrap.sh
+    - ./Library/Scripts/Bootstrap.sh
   checkout_script:
-    - ./checkout.sh
+    - ./Library/Scripts/Checkout.sh
   build_script:
     - make install
   package_script:
@@ -50,9 +50,9 @@ build_archlinux_x86_64_task:
   install_script:
     - pacman -Syu --noconfirm
     - pacman -S --noconfirm base-devel git tree squashfs-tools
-    - ./bootstrap.sh
+    - ./Library/Scripts/Bootstrap.sh
   checkout_script:
-    - ./checkout.sh
+    - ./Library/Scripts/Checkout.sh
   build_script:
     - make install
   package_script:
@@ -81,9 +81,9 @@ build_debian_x86_64_task:
   install_script:
     - apt-get update
     - apt-get -y install git tree squashfs-tools
-    - ./bootstrap.sh
+    - ./Library/Scripts/Bootstrap.sh
   checkout_script:
-    - ./checkout.sh
+    - ./Library/Scripts/Checkout.sh
   build_script:
     - make install
   package_script:

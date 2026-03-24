@@ -2,12 +2,12 @@
 set -e
 
 # Enable pinned commits with:
-#   PINNED=1 ./checkout.sh
+#   PINNED=1 ./Library/Scripts/Checkout.sh
 
 PINNED="${PINNED:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPOS_DIR="$SCRIPT_DIR/repos"
+REPOS_DIR="$SCRIPT_DIR/../Sources"
 
 REPOS="
 https://github.com/apple/swift-corelibs-libdispatch.git

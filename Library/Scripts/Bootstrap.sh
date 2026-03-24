@@ -20,7 +20,9 @@ fi
 
 echo "Detected OS: $OS_ID"
 
-REQUIREMENTS_FILE="requirements/${OS_ID}.txt"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REQUIREMENTS_FILE="$BASE_DIR/Library/OSSupport/${OS_ID}.txt"
 
 if [ ! -f "$REQUIREMENTS_FILE" ]; then
     echo "No requirements file found for OS: $OS_ID"

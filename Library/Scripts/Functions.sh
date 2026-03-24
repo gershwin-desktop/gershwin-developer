@@ -47,7 +47,7 @@ get_cpu_count() {
 # Export shared environment
 export_vars() {
     export WORKDIR="$(pwd)"
-    export REPOS_DIR="$WORKDIR/repos"
+    export REPOS_DIR="$WORKDIR/Library/Sources"
     export CPUS="$(get_cpu_count)"
     echo "Detected platform: $PLATFORM"
     echo "WORKDIR is set to: $WORKDIR"
@@ -56,7 +56,7 @@ export_vars() {
 }
 
 # Prevent this script from being run directly
-if [ "${0##*/}" = "functions.sh" ]; then
+if [ "${0##*/}" = "Functions.sh" ]; then
     echo "This script is a library and must be sourced, not executed directly."
     exit 1
 fi

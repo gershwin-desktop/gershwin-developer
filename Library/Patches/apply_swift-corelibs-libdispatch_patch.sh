@@ -5,14 +5,15 @@
 
 set -e  # Exit on any error
 
+PATCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 PATCH_FILE="swift-corelibs-libdispatch.patch"
-REPO_DIR="swift-corelibs-libdispatch"
+REPO_DIR="${REPO_DIR:-swift-corelibs-libdispatch}"
 
 echo "Applying patch: $PATCH_FILE to repository: $REPO_DIR"
 echo "Working directory: $(pwd)"
 
-if [ ! -f "$PATCH_FILE" ]; then
-    echo "Error: Patch file '$PATCH_FILE' not found in current directory."
+if [ ! -f "$PATCH_DIR/$PATCH_FILE" ]; then
+    echo "Error: Patch file '$PATCH_FILE' not found in $PATCH_DIR."
     exit 1
 fi
 
@@ -32,7 +33,7 @@ if grep -q "LIBDISPATCH_TIMER_MIN_DELAY_MS" src/event/event_kevent.c 2>/dev/null
 fi
 
 echo "Applying patch..."
-if patch -p1 -N < "../$PATCH_FILE"; then
+if patch -p1 -N < "$PATCH_DIR/$PATCH_FILE"; then
     echo "Patch applied successfully."
 else
     # patch -N returns non-zero if already applied, check if that's the case
