@@ -1,7 +1,16 @@
 --- a/configure
 +++ b/configure
-@@ -9258,15 +9258,14 @@ else case e in #(
-   e) cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+@@ -9241,6 +9241,9 @@
+ if test "$OBJC_RUNTIME_LIB" = "nx" -o "$OBJC_RUNTIME_LIB" = "apple"; then
+   NX_CONST_STRING_OBJCFLAGS=""
+   NX_CONST_STRING_CLASS=NXConstantString
++elif test "$OBJC_RUNTIME_LIB" = "ng"; then
++  NX_CONST_STRING_OBJCFLAGS="-fconstant-string-class=NSConstantString"
++  NX_CONST_STRING_CLASS=NSConstantString
+ else
+   strclass_CPPFLAGS="$CPPFLAGS"
+   CPPFLAGS="$CPPFLAGS -fconstant-string-class=FooConstantString"
+@@ -9258,15 +9261,14 @@
  /* end confdefs.h.  */
  #include "$srcdir/config/config.constant-string-class.m"
  _ACEOF
@@ -18,3 +27,4 @@
 +rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
  esac
  fi
+ 
