@@ -88,9 +88,10 @@ cmake .. \
 
 export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
-# Patch libdispatch
+# Patch libs-base
 echo "Patching libs-base..."
 ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-base" sh ./apply_nsrunloop_patch.sh )
+( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-base" sh ./apply_configure_constant_string_class_patch.sh )
 
 cd "$REPOS_DIR/libs-base"
 ./configure \
