@@ -26,13 +26,18 @@ fi
 cd "$REPO_DIR"
 
 echo "Entering directory: $REPO_DIR"
-echo "Applying patch..."
 
-if patch -p1 < "$PATCH_DIR/$PATCH_FILE"; then
-    echo "Patch applied successfully."
+# Check if patch is already applied (reverse would succeed)
+if patch -p1 --reverse --dry-run < "$PATCH_DIR/$PATCH_FILE" > /dev/null 2>&1; then
+    echo "Patch already applied, skipping."
 else
-    echo "Error: Failed to apply patch."
-    exit 1
+    echo "Applying patch..."
+    if patch -p1 --forward < "$PATCH_DIR/$PATCH_FILE"; then
+        echo "Patch applied successfully."
+    else
+        echo "Error: Failed to apply patch."
+        exit 1
+    fi
 fi
 
 echo "Patch application complete."
