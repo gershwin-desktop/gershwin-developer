@@ -25,9 +25,9 @@ fi
 cd "$REPO_DIR"
 
 echo "Entering directory: $REPO_DIR"
-echo "Applying patch with verbose output..."
+echo "Applying patch..."
 
-if patch -p1 -v < "$PATCH_DIR/$PATCH_FILE"; then
+if patch -p1 < "$PATCH_DIR/$PATCH_FILE"; then
     echo "Patch applied successfully."
 else
     echo "Error: Failed to apply patch."
