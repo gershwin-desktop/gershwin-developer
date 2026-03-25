@@ -52,3 +52,4 @@ libsquashfs-dev
 autoconf
 automake
 rpcbind
+dbus-x11
