@@ -1,3 +1,4 @@
+
 #!/bin/sh
 set -e
 
@@ -238,6 +239,20 @@ $MAKE_CMD clean
 cd "$REPOS_DIR/gershwin-components/Processes"
 $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 $MAKE_CMD install
+$MAKE_CMD clean
+
+cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
+$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+
+cd "$REPOS_DIR/gershwin-components/Assistants/CreateLiveMediaAssistant"
+$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+$MAKE_CMD install
+$MAKE_CMD clean
+cd "$REPOS_DIR/gershwin-components/Assistants/InstallationAssistant"
+$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+$MAKE_CMD install
+$MAKE_CMD clean
+cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
 $MAKE_CMD clean
 
 echo ""
