@@ -123,7 +123,7 @@ $MAKE_CMD clean
 
 cd "$REPOS_DIR/gershwin-workspace"
 autoreconf -fi
-./configure CC=clang
+./configure
 $MAKE_CMD -j"$CPUS" || exit 1
 $MAKE_CMD install
 $MAKE_CMD clean
