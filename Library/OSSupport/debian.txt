@@ -53,3 +53,4 @@ autoconf
 automake
 rpcbind
 dbus-x11
+patchelf
