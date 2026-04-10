@@ -1,44 +1,50 @@
 #!/bin/sh
 
-# Script to apply the libs-gui menu mouse-up patch
-# Removes the spurious "shouldFinish = YES;" in NSMenuView's mouse-up
-# handler (inside the do/while event loop near the break statement).
-# This line caused premature menu tracking termination.
+# Script to apply libs-gui menu tracking patches:
+# 1. Remove spurious "shouldFinish = YES;" in inner event loop (breaks all menus)
+# 2. Make transient/context menus use click-to-dismiss regardless of interface style
 
 set -e
 
 REPO_DIR="${REPO_DIR:-libs-gui}"
 TARGET="$REPO_DIR/Source/NSMenuView.m"
 
-echo "Applying libs-gui menu mouse-up patch"
+echo "Applying libs-gui menu tracking patches"
 
 if [ ! -f "$TARGET" ]; then
     echo "Error: $TARGET not found."
     exit 1
 fi
 
-# Check if patch is already applied: the shouldFinish = YES line
-# should appear 2 lines after the MouseUp type check
-if grep -A2 'NSLeftMouseUp.*NSRightMouseUp.*NSOtherMouseUp' "$TARGET" | grep -q 'shouldFinish = YES'; then
-    echo "Patch not yet applied, proceeding..."
-else
-    echo "Patch already applied, skipping."
-    exit 0
-fi
+APPLIED=0
 
-# Remove the specific "shouldFinish = YES;" line that follows the
-# MouseUp check + opening brace.  Match the exact indented line.
-sed -i '/NSLeftMouseUp.*NSRightMouseUp.*NSOtherMouseUp/{
+# Patch 1: Remove shouldFinish = YES from inner event loop
+if grep -A2 'NSLeftMouseUp.*NSRightMouseUp.*NSOtherMouseUp' "$TARGET" | grep -q 'shouldFinish = YES'; then
+    echo "Applying patch 1: Remove shouldFinish = YES from inner loop..."
+    sed -i '/NSLeftMouseUp.*NSRightMouseUp.*NSOtherMouseUp/{
 n
 /^      {$/!b
 n
 /shouldFinish = YES;/d
 }' "$TARGET"
-
-# Verify
-if grep -A2 'NSLeftMouseUp.*NSRightMouseUp.*NSOtherMouseUp' "$TARGET" | grep -q 'shouldFinish = YES'; then
-    echo "Error: Patch did not apply correctly."
-    exit 1
+    APPLIED=$((APPLIED + 1))
+else
+    echo "Patch 1 already applied, skipping."
 fi
 
-echo "Patch applied successfully."
+# Patch 2: Make transient menus always use click-to-dismiss
+# Change: ([[self menu] isTransient] && style == NSWindows95InterfaceStyle)
+# To:     [[self menu] isTransient]
+if grep -q 'isTransient\] && style == NSWindows95InterfaceStyle' "$TARGET"; then
+    echo "Applying patch 2: Transient menu click-to-dismiss for all styles..."
+    sed -i 's/.*isTransient\] && style == NSWindows95InterfaceStyle.*/      \/\/ Or if menu is transient (context\/popup menu) — keep open after\n      \/\/ the initial right-click release for click-to-dismiss behavior.\n      [[self menu] isTransient] ||/' "$TARGET"
+    APPLIED=$((APPLIED + 1))
+else
+    echo "Patch 2 already applied, skipping."
+fi
+
+if [ "$APPLIED" -gt 0 ]; then
+    echo "$APPLIED patch(es) applied successfully."
+else
+    echo "All patches already applied."
+fi
