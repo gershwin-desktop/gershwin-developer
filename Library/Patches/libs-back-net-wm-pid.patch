@@ -1,0 +1,60 @@
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+index 1add432..da126a6 100644
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -47,6 +47,7 @@
+ #ifdef HAVE_UNISTD_H
+ #include <unistd.h>
+ #endif
++#include <netdb.h>
+ 
+ #ifdef HAVE_WRASTER_H
+ #include "wraster.h"
+@@ -1987,6 +2017,47 @@ _get_next_prop_new_event(Display *display, XEvent *event, char *arg)
+ 		      (unsigned char *)&window->win_attrs,
+ 		      sizeof(GNUstepWMAttributes)/sizeof(CARD32));
+ 
++  // Set _NET_WM_PID and WM_CLIENT_MACHINE on each window.
++  // EWMH requires WM_CLIENT_MACHINE to accompany _NET_WM_PID, and mandates
++  // it be the fully-qualified domain name of the client's host.
++  if ((generic.wm & XGWM_EWMH) != 0)
++    {
++      long pid = (long)getpid();
++      XChangeProperty(dpy, window->ident,
++		      generic._NET_WM_PID_ATOM, XA_CARDINAL,
++		      32, PropModeReplace,
++		      (unsigned char *)&pid, 1);
++
++      /* WM_CLIENT_MACHINE must be the FQDN per EWMH when _NET_WM_PID is set. */
++      {
++	char hostname[256];
++	hostname[0] = '\0';
++	if (gethostname(hostname, sizeof(hostname)) == 0)
++	  {
++	    struct addrinfo hints, *res = NULL;
++	    hostname[sizeof(hostname) - 1] = '\0';
++	    memset(&hints, 0, sizeof(hints));
++	    hints.ai_flags = AI_CANONNAME;
++	    if (getaddrinfo(hostname, NULL, &hints, &res) == 0
++		&& res != NULL && res->ai_canonname != NULL)
++	      {
++		strncpy(hostname, res->ai_canonname, sizeof(hostname) - 1);
++		hostname[sizeof(hostname) - 1] = '\0';
++	      }
++	    if (res != NULL)
++	      freeaddrinfo(res);
++	  }
++	if (hostname[0] != '\0')
++	  {
++	    NSLog(@"[XGServerWindow] Setting WM_CLIENT_MACHINE to: %s", hostname);
++	    XChangeProperty(dpy, window->ident,
++			    XA_WM_CLIENT_MACHINE, XA_STRING,
++			    8, PropModeReplace,
++			    (unsigned char *)hostname, (int)strlen(hostname));
++	  }
++      }
++    }
++
+   // send to the WM window style hints
+   if ((generic.wm & XGWM_WINDOWMAKER) == 0)
+     {
