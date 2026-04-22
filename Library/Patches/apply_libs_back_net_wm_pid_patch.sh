@@ -7,14 +7,15 @@
 
 set -e  # Exit on any error
 
+PATCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 PATCH_FILE="libs-back-net-wm-pid.patch"
-REPO_DIR="libs-back"
+REPO_DIR="${REPO_DIR:-libs-back}"
 
 echo "Applying patch: $PATCH_FILE to repository: $REPO_DIR"
 echo "Working directory: $(pwd)"
 
-if [ ! -f "$PATCH_FILE" ]; then
-    echo "Error: Patch file '$PATCH_FILE' not found in current directory."
+if [ ! -f "$PATCH_DIR/$PATCH_FILE" ]; then
+    echo "Error: Patch file '$PATCH_FILE' not found in $PATCH_DIR."
     exit 1
 fi
 
@@ -28,7 +29,7 @@ cd "$REPO_DIR"
 echo "Entering directory: $REPO_DIR"
 echo "Applying patch with verbose output..."
 
-if patch -p1 < "../$PATCH_FILE"; then
+if patch -p1 < "$PATCH_DIR/$PATCH_FILE"; then
     echo "Patch applied successfully."
 else
     echo "Error: Failed to apply patch."
