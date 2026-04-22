@@ -100,7 +100,7 @@ $MAKE_CMD clean
 # Patch libs-gui
 echo "Patching libs-gui..."
 ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-mouseup_patch.sh )
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-dropdown-tracking_patch.sh )
+( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-dropdown-tracking_patch.sh ) # https://github.com/gnustep/libs-back/issues/76
 
 cd "$REPOS_DIR/libs-gui"
 ./configure
@@ -110,7 +110,7 @@ $MAKE_CMD clean
 
 # Patch libs-back
 echo "Patching libs-back..."
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-back" sh ./apply_libs_back_net_wm_pid_patch.sh )
+( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-back" sh ./apply_libs_back_net_wm_pid_patch.sh ) # https://github.com/gnustep/libs-back/issues/74
 
 cd "$REPOS_DIR/libs-back"
 export fonts=no
