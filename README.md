@@ -63,9 +63,3 @@ service loginwindow enable && service loginwindow start
 ## Optional libraries
 * libdbus for waiting for the Global Menu to appear and for implementing the FileManager1 service that lets, e.g., web browsers, open the file manager to show the downloaded files
 * libsquashfs for AppImage icons
-
-## Binaries
-
-* https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-build/data/system/artifacts/FreeBSD/14/amd64/
-* https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-build/data/system/artifacts/ArchLinux/x86_64/
-* https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-build/data/system/artifacts/Debian/x86_64/
