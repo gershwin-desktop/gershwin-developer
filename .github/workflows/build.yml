@@ -46,7 +46,7 @@ jobs:
           if-no-files-found: error
 
   build-archlinux-x86_64:
-    name: Arch Linux x86_64
+    name: Arch x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 240
     container:
