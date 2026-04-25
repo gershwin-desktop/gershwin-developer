@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-freebsd-14-amd64:
-    name: Build Gershwin System for FreeBSD 14 amd64
+    name: FreeBSD x86_x64
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -46,7 +46,7 @@ jobs:
           if-no-files-found: error
 
   build-archlinux-x86_64:
-    name: Build Gershwin System for Arch Linux x86_64
+    name: Arch Linux x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 240
     container:
@@ -88,7 +88,7 @@ jobs:
           if-no-files-found: error
 
   build-debian-x86_64:
-    name: Build Gershwin System for Debian x86_64
+    name: Debian x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 240
     container:
