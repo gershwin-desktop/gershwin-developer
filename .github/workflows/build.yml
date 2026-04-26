@@ -1,0 +1,130 @@
+name: Build Gershwin System
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-freebsd-14-amd64:
+    name: FreeBSD x86_x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.3"
+          usesh: true
+          sync: rsync
+          copyback: true
+          cpu: 2
+          mem: 4096
+          prepare: |
+            pkg update
+            pkg install -y git tree squashfs-tools
+          run: |
+            set -e
+            ./Library/Scripts/Bootstrap.sh
+            ./Library/Scripts/Checkout.sh
+            make install
+            mkdir -p artifacts/FreeBSD/14/amd64
+            tar -C / -cJf artifacts/FreeBSD/14/amd64/system.txz /System
+            TIMESTAMP=$(date +%y%m%d%H%M%S)
+            mksquashfs /System artifacts/FreeBSD/14/amd64/Gershwin-FreeBSD-${TIMESTAMP}.squashfs -comp xz -b 1M
+            find /System -type f -perm -111 -exec sh -c 'ldd "$1" 2>/dev/null | awk "/=>/ {print \$3}" | xargs -n1 pkg which 2>/dev/null | grep package | awk "{print \$6}" | sed "s/-[^-]*\$//"' sh {} \; | sort -u > artifacts/FreeBSD/14/amd64/Gershwin-FreeBSD-${TIMESTAMP}.dependencies
+            cd artifacts/FreeBSD/14/amd64
+            tree -h -D -C -H -./ --houtro=/dev/null -T 'Gershwin System for FreeBSD 14 amd64' ./ > ./index.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-freebsd-14-amd64
+          path: artifacts/FreeBSD/14/amd64
+          if-no-files-found: error
+
+  build-archlinux-x86_64:
+    name: Arch x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install build prerequisites
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git tree squashfs-tools
+
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap
+        run: ./Library/Scripts/Bootstrap.sh
+
+      - name: Checkout sources
+        run: ./Library/Scripts/Checkout.sh
+
+      - name: Build and install
+        run: make install
+
+      - name: Package
+        run: |
+          mkdir -p artifacts/ArchLinux/x86_64
+          tar -C / -cJf artifacts/ArchLinux/x86_64/system.txz /System
+          export TIMESTAMP=$(date +%y%m%d%H%M%S)
+          mksquashfs /System artifacts/ArchLinux/x86_64/Gershwin-ArchLinux-${TIMESTAMP}.squashfs -comp xz -b 1M
+          find /System -type f -perm -111 -exec sh -c 'ldd "$1" 2>/dev/null | awk "/=>/ {print \$3}" | xargs -n1 pacman -Qo 2>/dev/null | awk "{print \$5}"' sh {} \; | sort -u > artifacts/ArchLinux/x86_64/Gershwin-ArchLinux-${TIMESTAMP}.dependencies
+
+      - name: Build index
+        run: |
+          cd artifacts/ArchLinux/x86_64
+          tree -h -D -C -H -./ --houtro=/dev/null -T 'Gershwin System for Arch Linux x86_64' ./ > ./index.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-archlinux-x86_64
+          path: artifacts/ArchLinux/x86_64
+          if-no-files-found: error
+
+  build-debian-x86_64:
+    name: Debian x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: debian:bookworm
+    steps:
+      - name: Install build prerequisites
+        run: |
+          apt-get update
+          apt-get -y install git tree squashfs-tools
+
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap
+        run: ./Library/Scripts/Bootstrap.sh
+
+      - name: Checkout sources
+        run: ./Library/Scripts/Checkout.sh
+
+      - name: Build and install
+        run: make install
+
+      - name: Package
+        run: |
+          mkdir -p artifacts/Debian/x86_64
+          tar -C / -cJf artifacts/Debian/x86_64/system.txz /System
+          export TIMESTAMP=$(date +%y%m%d%H%M%S)
+          mksquashfs /System artifacts/Debian/x86_64/Gershwin-Debian-${TIMESTAMP}.squashfs -comp xz -b 1M
+          find /System -type f -perm -111 -exec sh -c 'ldd "$1" 2>/dev/null | awk "/=>/ {print \$3}" | xargs -n1 dpkg -S 2>/dev/null | cut -d: -f1' sh {} \; | sort -u > artifacts/Debian/x86_64/Gershwin-Debian-${TIMESTAMP}.dependencies
+
+      - name: Build index
+        run: |
+          cd artifacts/Debian/x86_64
+          tree -h -D -C -H -./ --houtro=/dev/null -T 'Gershwin System for Debian x86_64' ./ > ./index.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-debian-x86_64
+          path: artifacts/Debian/x86_64
+          if-no-files-found: error
