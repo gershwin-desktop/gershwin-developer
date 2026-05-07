@@ -99,6 +99,7 @@ $MAKE_CMD clean
 
 cd "$REPOS_DIR/libs-corebase"
 ./configure \
+  CC=clang OBJC=clang \
   CPPFLAGS="-I/System/Library/Headers" \
   LDFLAGS="-L/System/Library/Libraries"
 $MAKE_CMD -j"$CPUS" || exit 1
