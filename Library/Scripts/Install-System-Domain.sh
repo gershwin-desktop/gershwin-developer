@@ -11,6 +11,14 @@ fi
 detect_platform
 export_vars
 
+# On OpenBSD, X11 headers/libs live under /usr/X11R6 which clang does not
+# search by default.  Export CPPFLAGS/LDFLAGS here so every GNUstep make
+# invocation throughout this script picks up the right paths.
+if [ "$(uname -s)" = "OpenBSD" ]; then
+    export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
+    export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
+fi
+
 export REPOS_DIR="$WORKDIR/Library/Sources"
 
 cd "$REPOS_DIR/gershwin-system"
@@ -141,15 +149,10 @@ if [ "$(uname -s)" = "OpenBSD" ]; then
     echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
 fi
 autoreconf -fi
-# On OpenBSD, X11 headers/libs are under /usr/X11R6 which clang doesn't
-# search by default.  Pass the paths explicitly so uitest.m can find Xlib.h.
-if [ "$(uname -s)" = "OpenBSD" ]; then
-    CPPFLAGS="-I/usr/X11R6/include" LDFLAGS="-L/usr/X11R6/lib" ./configure
-    $MAKE_CMD CPPFLAGS="-I/usr/X11R6/include" LDFLAGS="-L/usr/X11R6/lib" -j"$CPUS" || exit 1
-else
-    ./configure
-    $MAKE_CMD -j"$CPUS" || exit 1
-fi
+# CPPFLAGS/LDFLAGS already exported above with X11 paths for OpenBSD.
+# Pass them to configure as well so it finds X11.
+./configure ${CPPFLAGS:+CPPFLAGS="$CPPFLAGS"} ${LDFLAGS:+LDFLAGS="$LDFLAGS"}
+$MAKE_CMD -j"$CPUS" || exit 1
 $MAKE_CMD install
 $MAKE_CMD clean
 
