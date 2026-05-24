@@ -81,8 +81,15 @@ fi
 # checkout_commit gershwin-textedit            3df6db8
 
 # Lower CMake version requirements
-sed -i -E \
-'s/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
-swift-corelibs-libdispatch/CMakeLists.txt
+# Use a temp-file approach for in-place sed to avoid -i portability issues
+# across GNU/Linux, FreeBSD and OpenBSD.  All three support -E for ERE.
+sed_inplace_ere() {
+    _pat="$1"; _file="$2"
+    _tmp="$(mktemp)"
+    sed -E "$_pat" "$_file" > "$_tmp" && mv "$_tmp" "$_file"
+}
+sed_inplace_ere \
+    's/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
+    swift-corelibs-libdispatch/CMakeLists.txt
 
 echo "Done."
