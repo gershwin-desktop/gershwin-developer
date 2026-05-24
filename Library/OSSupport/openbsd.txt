@@ -1,8 +1,8 @@
 gmake
 cmake
 git
-autoconf
-automake
+autoconf-2.72p0
+automake-1.16.5p0
 libtool
 jpeg
 tiff
@@ -15,15 +15,11 @@ libffi
 icu4c
 cairo
 flite
-portaudio
 freeglut
 giflib
 libao
 dbus
 avahi
-xcb-util
-xcb-util-cursor
-xcb-util-wm
 wget
 cups
 freerdp
