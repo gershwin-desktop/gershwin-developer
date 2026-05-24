@@ -145,7 +145,7 @@ autoreconf -fi
 # search by default.  Pass the paths explicitly so uitest.m can find Xlib.h.
 if [ "$(uname -s)" = "OpenBSD" ]; then
     CPPFLAGS="-I/usr/X11R6/include" LDFLAGS="-L/usr/X11R6/lib" ./configure
-    $MAKE_CMD CPPFLAGS="-I/usr/X11R6/include" -j"$CPUS" || exit 1
+    $MAKE_CMD CPPFLAGS="-I/usr/X11R6/include" LDFLAGS="-L/usr/X11R6/lib" -j"$CPUS" || exit 1
 else
     ./configure
     $MAKE_CMD -j"$CPUS" || exit 1
