@@ -141,8 +141,15 @@ if [ "$(uname -s)" = "OpenBSD" ]; then
     echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
 fi
 autoreconf -fi
-./configure
-$MAKE_CMD -j"$CPUS" || exit 1
+# On OpenBSD, X11 headers/libs are under /usr/X11R6 which clang doesn't
+# search by default.  Pass the paths explicitly so uitest.m can find Xlib.h.
+if [ "$(uname -s)" = "OpenBSD" ]; then
+    CPPFLAGS="-I/usr/X11R6/include" LDFLAGS="-L/usr/X11R6/lib" ./configure
+    $MAKE_CMD CPPFLAGS="-I/usr/X11R6/include" -j"$CPUS" || exit 1
+else
+    ./configure
+    $MAKE_CMD -j"$CPUS" || exit 1
+fi
 $MAKE_CMD install
 $MAKE_CMD clean
 
