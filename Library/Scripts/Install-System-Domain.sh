@@ -12,11 +12,16 @@ detect_platform
 export_vars
 
 # On OpenBSD, X11 headers/libs live under /usr/X11R6 which clang does not
-# search by default.  Export CPPFLAGS/LDFLAGS here so every GNUstep make
-# invocation throughout this script picks up the right paths.
+# search by default.
+# - Export CPPFLAGS/LDFLAGS for autoconf configure scripts.
+# - Augment MAKE_CMD with GNUstep make's ADDITIONAL_INCLUDE_DIRS /
+#   ADDITIONAL_LIB_DIRS so every $MAKE_CMD invocation passes the paths
+#   directly on the command line (env-var CPPFLAGS is not reliably picked
+#   up by GNUstep make's internal compile rules).
 if [ "$(uname -s)" = "OpenBSD" ]; then
     export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
+    MAKE_CMD="$MAKE_CMD ADDITIONAL_INCLUDE_DIRS=-I/usr/X11R6/include ADDITIONAL_LIB_DIRS=-L/usr/X11R6/lib"
 fi
 
 export REPOS_DIR="$WORKDIR/Library/Sources"
