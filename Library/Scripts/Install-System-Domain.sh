@@ -12,22 +12,31 @@ detect_platform
 export_vars
 
 # On OpenBSD, X11 headers/libs live under /usr/X11R6 which clang does not
-# search by default.
-# - Export CPPFLAGS/LDFLAGS for autoconf configure scripts.
-# - Augment MAKE_CMD with GNUstep make's ADDITIONAL_INCLUDE_DIRS /
-#   ADDITIONAL_LIB_DIRS so every $MAKE_CMD invocation passes the paths
-#   directly on the command line (env-var CPPFLAGS is not reliably picked
-#   up by GNUstep make's internal compile rules).
+# search by default.  Export CPPFLAGS/LDFLAGS for autoconf configure scripts,
+# and collect the GNUstep make variables separately so they can be passed as
+# discrete arguments (never fold extra args into MAKE_CMD itself, since quoted
+# run_make would then be treated as a single command name by the shell).
+MAKE_EXTRA_ARGS=
 if [ "$(uname -s)" = "OpenBSD" ]; then
     export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
-    MAKE_CMD="$MAKE_CMD ADDITIONAL_INCLUDE_DIRS=-I/usr/X11R6/include ADDITIONAL_LIB_DIRS=-L/usr/X11R6/lib"
+    MAKE_EXTRA_ARGS='ADDITIONAL_INCLUDE_DIRS=-I/usr/X11R6/include ADDITIONAL_LIB_DIRS=-L/usr/X11R6/lib'
 fi
+
+# run_make: wrapper that prepends MAKE_EXTRA_ARGS (if any) as discrete make
+# variable assignments, then forwards all remaining arguments to MAKE_CMD.
+run_make() {
+    if [ -n "$MAKE_EXTRA_ARGS" ]; then
+        # Use set -- to split MAKE_EXTRA_ARGS into separate words safely.
+        set -- $MAKE_EXTRA_ARGS "$@"
+    fi
+    "$MAKE_CMD" "$@"
+}
 
 export REPOS_DIR="$WORKDIR/Library/Sources"
 
 cd "$REPOS_DIR/gershwin-system"
-$MAKE_CMD install
+run_make install
 export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
 cd "$REPOS_DIR/gershwin-assets"
@@ -58,14 +67,14 @@ cmake .. \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++
 
-"$MAKE_CMD" -j"$CPUS" || exit 1
-"$MAKE_CMD" install || exit 1
+run_make -j"$CPUS" || exit 1
+run_make install || exit 1
 
 # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
 # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
 echo "Building/installing tools-make..."
 cd "$REPOS_DIR/tools-make"
-$MAKE_CMD distclean 2>/dev/null || true
+run_make distclean 2>/dev/null || true
 ./configure \
   --with-config-file=/System/Library/Preferences/GNUstep.conf \
   --with-layout=gershwin \
@@ -74,8 +83,8 @@ $MAKE_CMD distclean 2>/dev/null || true
   LDFLAGS="-L/System/Library/Libraries" \
   CPPFLAGS="-I/System/Library/Headers" \
   libobjc_LIBS=" "
-$MAKE_CMD || exit 1
-$MAKE_CMD install
+run_make || exit 1
+run_make install
 
 . /System/Library/Makefiles/GNUstep.sh
 
@@ -97,8 +106,8 @@ cmake .. \
   -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
   -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
 
-"$MAKE_CMD" -j"$CPUS" || exit 1
-"$MAKE_CMD" install || exit 1
+run_make -j"$CPUS" || exit 1
+run_make install || exit 1
 
 export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
@@ -106,9 +115,9 @@ cd "$REPOS_DIR/libs-base"
 ./configure \
   --with-dispatch-include=/System/Library/Headers \
   --with-dispatch-library=/System/Library/Libraries
-$MAKE_CMD -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 # Patch libs-gui
 echo "Patching libs-gui..."
@@ -117,9 +126,9 @@ echo "Patching libs-gui..."
 
 cd "$REPOS_DIR/libs-gui"
 ./configure
-$MAKE_CMD -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 # Patch libs-back
 echo "Patching libs-back..."
@@ -128,16 +137,16 @@ echo "Patching libs-back..."
 cd "$REPOS_DIR/libs-back"
 export fonts=no
 ./configure
-$MAKE_CMD -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 # Hook into tools-make to inject build time and git hash into Info-gnustep.plist files
 cd "$REPOS_DIR/gershwin-components/plistupdate"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
 sh -e ./setup-integration.sh
-$MAKE_CMD clean
+run_make clean
 
 # Patch gershwin-workspace: fix swap16/32/64 macro clash on OpenBSD
 echo "Patching gershwin-workspace..."
@@ -157,19 +166,19 @@ autoreconf -fi
 # CPPFLAGS/LDFLAGS already exported above with X11 paths for OpenBSD.
 # Pass them to configure as well so it finds X11.
 ./configure ${CPPFLAGS:+CPPFLAGS="$CPPFLAGS"} ${LDFLAGS:+LDFLAGS="$LDFLAGS"}
-$MAKE_CMD -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-systempreferences"
-$MAKE_CMD -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-eau-theme"
-$MAKE_CMD -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-terminal"
 # On glibc based Linux systems, -liconv should not be used as iconv is part of glibc
@@ -177,120 +186,120 @@ cd "$REPOS_DIR/gershwin-terminal"
 # TODO: Port this fix to GNUmakefile.preamble properly
 if [ "$(uname)" = "Linux" ] ; then
   sed -i -e 's|-liconv ||g' GNUmakefile.preamble
-  $MAKE_CMD CPPFLAGS="-D__GNU__ -DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1 # Do not include termio.h which is outdated
+  run_make CPPFLAGS="-D__GNU__ -DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1 # Do not include termio.h which is outdated
 elif [ "$(uname)" = "OpenBSD" ] ; then
   sed -i '' -e 's|-liconv ||g' GNUmakefile.preamble
-  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 else
-  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 fi
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-textedit"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-windowmanager/"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Menu"
 ./configure || exit 1
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/DirectoryServices"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/LoginWindow"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/appwrap"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/pkgwrap"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Display"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Keyboard"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/GlobalShortcuts"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Screenshot"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Printers"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Network"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Sound"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Sharing"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Console"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/SudoAskPass"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Processes"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 
 cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 
 cd "$REPOS_DIR/gershwin-components/Assistants/CreateLiveMediaAssistant"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 cd "$REPOS_DIR/gershwin-components/Assistants/InstallationAssistant"
-$MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-$MAKE_CMD install
-$MAKE_CMD clean
+run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+run_make install
+run_make clean
 cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
-$MAKE_CMD clean
+run_make clean
 
 echo ""
 echo "Done."
