@@ -126,6 +126,10 @@ $MAKE_CMD install
 sh -e ./setup-integration.sh
 $MAKE_CMD clean
 
+# Patch gershwin-workspace: fix swap16/32/64 macro clash on OpenBSD
+echo "Patching gershwin-workspace..."
+( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/gershwin-workspace" sh ./apply_gershwin-workspace-dsbbuddy-swap_patch.sh )
+
 cd "$REPOS_DIR/gershwin-workspace"
 # OpenBSD ships autoconf and automake with version-suffixed binaries;
 # autoreconf needs these env vars to find the right versions.
