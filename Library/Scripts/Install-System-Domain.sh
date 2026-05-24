@@ -201,7 +201,10 @@ if [ "$(uname)" = "Linux" ] ; then
   sed -i -e 's|-liconv ||g' GNUmakefile.preamble
   run_make CPPFLAGS="-D__GNU__ -DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1 # Do not include termio.h which is outdated
 elif [ "$(uname)" = "OpenBSD" ] ; then
-  sed -i '' -e 's|-liconv ||g' GNUmakefile.preamble
+  # OpenBSD sed does not reliably accept `sed -i ''` (space + empty suffix).
+  # Use a portable temp-file approach instead.
+  sed -e 's|-liconv ||g' GNUmakefile.preamble > /tmp/_preamble.tmp \
+    && mv /tmp/_preamble.tmp GNUmakefile.preamble
   run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 else
   run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
