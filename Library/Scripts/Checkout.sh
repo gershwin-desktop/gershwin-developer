@@ -81,8 +81,16 @@ fi
 # checkout_commit gershwin-textedit            3df6db8
 
 # Lower CMake version requirements
-sed -i -E \
-'s/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
+# BSD sed requires an explicit (possibly empty) backup extension after -i;
+# GNU sed accepts -i without an extension.
+sed_i_ext() {
+    _pat="$1"; _file="$2"
+    case "$(uname -s)" in
+        Linux) sed -i -E "$_pat" "$_file" ;;
+        *)     sed -i '' -E "$_pat" "$_file" ;;
+    esac
+}
+sed_i_ext 's/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
 swift-corelibs-libdispatch/CMakeLists.txt
 
 echo "Done."

@@ -128,3 +128,44 @@ jobs:
           name: gershwin-debian-x86_64
           path: artifacts/Debian/x86_64
           if-no-files-found: error
+
+  build-openbsd-76-amd64:
+    name: OpenBSD x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside OpenBSD VM
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "7.6"
+          usesh: true
+          sync: rsync
+          copyback: true
+          cpu: 2
+          mem: 4096
+          prepare: |
+            pkg_add -I git tree
+          run: |
+            set -e
+            ./Library/Scripts/Bootstrap.sh
+            ./Library/Scripts/Checkout.sh
+            make install
+            mkdir -p artifacts/OpenBSD/7.6/amd64
+            tar -C / -cJf artifacts/OpenBSD/7.6/amd64/system.txz /System
+            TIMESTAMP=$(date +%y%m%d%H%M%S)
+            find /System -type f \( -perm -0100 -o -perm -0010 -o -perm -0001 \) \
+              -exec ldd {} 2>/dev/null \; 2>/dev/null \
+              | awk '/=>/ {print $3}' | grep -v 'not found' | sort -u \
+              > artifacts/OpenBSD/7.6/amd64/Gershwin-OpenBSD-${TIMESTAMP}.dependencies || true
+            cd artifacts/OpenBSD/7.6/amd64
+            tree -h -D -C -H -./ --houtro=/dev/null -T 'Gershwin System for OpenBSD 7.6 amd64' ./ > ./index.html || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-openbsd-76-amd64
+          path: artifacts/OpenBSD/7.6/amd64
+          if-no-files-found: error

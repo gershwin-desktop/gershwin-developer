@@ -127,6 +127,15 @@ sh -e ./setup-integration.sh
 $MAKE_CMD clean
 
 cd "$REPOS_DIR/gershwin-workspace"
+# OpenBSD ships autoconf and automake with version-suffixed binaries;
+# autoreconf needs these env vars to find the right versions.
+if [ "$(uname -s)" = "OpenBSD" ]; then
+    export AUTOCONF_VERSION
+    export AUTOMAKE_VERSION
+    AUTOCONF_VERSION=$(ls /usr/local/bin/autoconf-* 2>/dev/null | sed 's|.*/autoconf-||' | sort -V | tail -1)
+    AUTOMAKE_VERSION=$(ls /usr/local/bin/automake-* 2>/dev/null | sed 's|.*/automake-||' | sort -V | tail -1)
+    echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
+fi
 autoreconf -fi
 ./configure
 $MAKE_CMD -j"$CPUS" || exit 1
@@ -145,10 +154,14 @@ $MAKE_CMD clean
 
 cd "$REPOS_DIR/gershwin-terminal"
 # On glibc based Linux systems, -liconv should not be used as iconv is part of glibc
+# On OpenBSD, iconv is also part of libc (no separate libiconv needed)
 # TODO: Port this fix to GNUmakefile.preamble properly
 if [ "$(uname)" = "Linux" ] ; then
   sed -i -e 's|-liconv ||g' GNUmakefile.preamble
   $MAKE_CMD CPPFLAGS="-D__GNU__ -DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1 # Do not include termio.h which is outdated
+elif [ "$(uname)" = "OpenBSD" ] ; then
+  sed -i '' -e 's|-liconv ||g' GNUmakefile.preamble
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 else
   $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 fi

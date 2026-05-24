@@ -13,6 +13,8 @@ if [ -f /etc/os-release ]; then
     OS_LIKE="$ID_LIKE"
 elif [ "$(uname -s)" = "FreeBSD" ]; then
     OS_ID="freebsd"
+elif [ "$(uname -s)" = "OpenBSD" ]; then
+    OS_ID="openbsd"
 else
     echo "Unsupported or unknown OS."
     exit 1
@@ -99,6 +101,23 @@ case "$OS_ID" in
     if [ -n "$missing" ]; then
       echo "Installing:$missing"
       pkg install -y $missing
+    else
+      echo "All required packages are already installed."
+    fi
+    ;;
+
+  openbsd)
+    while IFS= read -r pkg || [ -n "$pkg" ]; do
+      [ -z "$pkg" ] && continue
+      # pkg_info lists installed packages as "name-version"; check for name prefix
+      if ! pkg_info | grep -q "^${pkg}[- ]"; then
+        missing="$missing $pkg"
+      fi
+    done < "$REQUIREMENTS_FILE"
+
+    if [ -n "$missing" ]; then
+      echo "Installing:$missing"
+      pkg_add -I $missing
     else
       echo "All required packages are already installed."
     fi
