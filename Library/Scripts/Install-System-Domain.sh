@@ -18,9 +18,20 @@ export_vars
 # run_make would then be treated as a single command name by the shell).
 MAKE_EXTRA_ARGS=
 if [ "$(uname -s)" = "OpenBSD" ]; then
-    export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
+    # X11 headers/libs live under /usr/X11R6 which clang does not search by
+    # default.  Use CFLAGS/OBJCFLAGS/LDFLAGS (NOT CPPFLAGS or
+    # ADDITIONAL_INCLUDE_DIRS) because:
+    #   - GNUstep make picks up CFLAGS, OBJCFLAGS, LDFLAGS from the environment
+    #     and appends them to its own flags.
+    #   - CPPFLAGS is not used by GNUstep make's compile rules.
+    #   - Passing ADDITIONAL_INCLUDE_DIRS on the make command line overrides
+    #     a package's own value (e.g. libs-base sets -I. for generated headers)
+    #     and breaks those builds.
+    export CFLAGS="${CFLAGS:+$CFLAGS }-I/usr/X11R6/include"
+    export OBJCFLAGS="${OBJCFLAGS:+$OBJCFLAGS }-I/usr/X11R6/include"
     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
-    MAKE_EXTRA_ARGS='ADDITIONAL_INCLUDE_DIRS=-I/usr/X11R6/include ADDITIONAL_LIB_DIRS=-L/usr/X11R6/lib'
+    # Also set CPPFLAGS for autoconf configure scripts (./configure).
+    export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
 fi
 
 # run_make: wrapper that prepends MAKE_EXTRA_ARGS (if any) as discrete make
