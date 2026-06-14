@@ -1,4 +1,3 @@
-
 #!/bin/sh
 set -e
 
@@ -127,7 +126,8 @@ cd "$REPOS_DIR/libs-base"
 if [ "$NEXTBSD" -eq 1 ]; then
   ./configure \
     --with-dispatch-include=/usr/include \
-    --with-dispatch-library=/usr/lib/system
+    --with-dispatch-library=/usr/lib/system \
+    --with-zeroconf-api=mdns
 else
   ./configure \
     --with-dispatch-include=/System/Library/Headers \
