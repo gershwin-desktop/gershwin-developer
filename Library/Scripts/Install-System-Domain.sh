@@ -16,8 +16,15 @@ export REPOS_DIR="$WORKDIR/Library/Sources"
 if [ -d "/usr/lib/system" ]; then
   NEXTBSD=1
   echo "NextBSD detected: using system libdispatch from /usr/lib/system"
+  # config.guess does not recognize NextBSD; tell configure we are FreeBSD
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    amd64) ARCH="x86_64" ;;
+  esac
+  BUILD_FLAG="--build=${ARCH}-nextbsd-freebsd"
 else
   NEXTBSD=0
+  BUILD_FLAG=""
 fi
 
 cd "$REPOS_DIR/gershwin-system"
@@ -66,6 +73,7 @@ cd "$REPOS_DIR/tools-make"
 $MAKE_CMD distclean 2>/dev/null || true
 if [ "$NEXTBSD" -eq 1 ]; then
   ./configure \
+    $BUILD_FLAG \
     --with-config-file=/System/Library/Preferences/GNUstep.conf \
     --with-layout=gershwin \
     --with-library-combo=ng-gnu-gnu \
@@ -125,6 +133,7 @@ export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 cd "$REPOS_DIR/libs-base"
 if [ "$NEXTBSD" -eq 1 ]; then
   ./configure \
+    $BUILD_FLAG \
     --with-dispatch-include=/usr/include \
     --with-dispatch-library=/usr/lib/system \
     --with-zeroconf-api=mdns
@@ -143,7 +152,7 @@ echo "Patching libs-gui..."
 ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-dropdown-tracking_patch.sh ) # https://github.com/gnustep/libs-back/issues/76
 
 cd "$REPOS_DIR/libs-gui"
-./configure
+./configure $BUILD_FLAG
 $MAKE_CMD -j"$CPUS" || exit 1
 $MAKE_CMD install
 $MAKE_CMD clean
@@ -154,7 +163,7 @@ echo "Patching libs-back..."
 
 cd "$REPOS_DIR/libs-back"
 export fonts=no
-./configure
+./configure $BUILD_FLAG
 $MAKE_CMD -j"$CPUS" || exit 1
 $MAKE_CMD install
 $MAKE_CMD clean
@@ -168,7 +177,7 @@ $MAKE_CMD clean
 
 cd "$REPOS_DIR/gershwin-workspace"
 autoreconf -fi
-./configure
+./configure $BUILD_FLAG
 $MAKE_CMD -j"$CPUS" || exit 1
 $MAKE_CMD install
 $MAKE_CMD clean
@@ -206,7 +215,7 @@ $MAKE_CMD install
 $MAKE_CMD clean
 
 cd "$REPOS_DIR/gershwin-components/Menu"
-./configure || exit 1
+./configure $BUILD_FLAG || exit 1
 $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 $MAKE_CMD install
 $MAKE_CMD clean
