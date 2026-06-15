@@ -23,6 +23,26 @@ if [ -d "/usr/lib/system" ]; then
   esac
   BUILD_FLAG="--build=${ARCH}-nextbsd-freebsd"
   CMAKE_SYSTEM_FLAG="-DCMAKE_SYSTEM_NAME=FreeBSD"
+
+  # Workaround: NextBSD's COW overlay filesystem reuses inodes across layers.
+  # Clang tracks #import/#include-once files by device:inode, so source files
+  # in /Developer can collide with system headers in /usr/include (e.g.
+  # objc-visibility.h shares an inode with /usr/include/locale.h, and
+  # GSGuiPrivate.h shares one with /usr/include/sys/_types.h).  When clang
+  # sees the inode has already been included, it silently skips the file.
+  # Rewriting each source file in-place gives it a new inode on the upper
+  # COW layer and breaks the collision.
+  echo "Breaking COW inode collisions in source trees..."
+  for repo in libobjc2 libs-gui libs-base; do
+    if [ -d "$REPOS_DIR/$repo" ]; then
+      find "$REPOS_DIR/$repo" -type f \( -name '*.h' -o -name '*.m' -o -name '*.mm' -o -name '*.c' -o -name '*.cc' -o -name '*.S' \) -exec sh -c '
+        for f; do
+          tmp="${f}.cow_fix"
+          cp "$f" "$tmp" && mv "$tmp" "$f"
+        done
+      ' _ {} +
+    fi
+  done
 else
   NEXTBSD=0
   BUILD_FLAG=""
@@ -108,22 +128,12 @@ mkdir -p "$REPOS_DIR/libobjc2/Build"
 cd "$REPOS_DIR/libobjc2/Build"
 
 if [ "$NEXTBSD" -eq 1 ]; then
-  # Workaround: Clang silently skips #include "objc-visibility.h" in libobjc2
-  # headers when C++ standard library headers (e.g. <vector>, <functional>) are
-  # included first in ObjC++ translation units.  This leaves OBJC_PUBLIC
-  # undefined, breaking arc.mm and selector_table.cc.  Force-define it as empty
-  # (matching the non-Windows definition in objc-visibility.h).
-  # See: https://github.com/nickhutchinson/libcxx/issues/XXX (if filed upstream)
   cmake .. \
     $CMAKE_SYSTEM_FLAG \
     -DGNUSTEP_INSTALL_TYPE=SYSTEM \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
-    '-DCMAKE_C_FLAGS=-DOBJC_PUBLIC=' \
-    '-DCMAKE_CXX_FLAGS=-DOBJC_PUBLIC=' \
-    '-DCMAKE_OBJC_FLAGS=-DOBJC_PUBLIC=' \
-    '-DCMAKE_OBJCXX_FLAGS=-DOBJC_PUBLIC=' \
     -DEMBEDDED_BLOCKS_RUNTIME=OFF \
     -DBlocksRuntime_INCLUDE_DIR=/usr/include \
     -DBlocksRuntime_LIBRARIES=/usr/lib/system/libBlocksRuntime.so
