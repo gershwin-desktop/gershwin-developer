@@ -22,9 +22,11 @@ if [ -d "/usr/lib/system" ]; then
     amd64) ARCH="x86_64" ;;
   esac
   BUILD_FLAG="--build=${ARCH}-nextbsd-freebsd"
+  CMAKE_SYSTEM_FLAG="-DCMAKE_SYSTEM_NAME=FreeBSD"
 else
   NEXTBSD=0
   BUILD_FLAG=""
+  CMAKE_SYSTEM_FLAG=""
 fi
 
 cd "$REPOS_DIR/gershwin-system"
@@ -107,6 +109,7 @@ cd "$REPOS_DIR/libobjc2/Build"
 
 if [ "$NEXTBSD" -eq 1 ]; then
   cmake .. \
+    $CMAKE_SYSTEM_FLAG \
     -DGNUSTEP_INSTALL_TYPE=SYSTEM \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang \
