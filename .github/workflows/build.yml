@@ -136,20 +136,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Build under the REAL NextBSD kernel. A chroot from a FreeBSD VM runs
-      # under the FreeBSD kernel, so `uname -s` is FreeBSD there and any
-      # uname-conditional build logic (e.g. GNUmakefiles gating -fobjc-arc on
-      # `ifeq ($(UNAME_S),FreeBSD)`) silently takes the wrong branch. Instead:
-      #  1. inside a FreeBSD VM (needed for UFS writes), inject this tree + a
-      #     launchd build harness into NextBSD's read-write disk image;
-      #  2. boot that image under QEMU on the Linux runner — the harness then
-      #     builds gershwin with uname -s = NextBSD and reports via serial.
       - name: Free up host disk
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
 
-      - name: Prep NextBSD image (inject build harness) — FreeBSD VM
+      - name: Generate ephemeral SSH key
+        run: |
+          mkdir -p nbsd-ci
+          ssh-keygen -t ed25519 -N '' -f nbsd-ci/key -C gershwin-ci
+
+      - name: Prep NextBSD image (FreeBSD VM)
         uses: vmactions/freebsd-vm@v1
         with:
           release: "15.0"
@@ -162,18 +159,64 @@ jobs:
             pkg install -y jq unzip
           run: |
             set -e
-            export TARGET_ARCH=amd64
-            /bin/sh .ci/nextbsd/prep-image.sh
+            REPO=$PWD
+            W=/var/tmp/nbsd
+            mkdir -p "$W"
+            URL=$(fetch -qo - https://api.github.com/repos/nextbsd-redux/nextbsd/releases/tags/continuous | jq -r '.assets[]|select(.name|test("amd64.*\\.img\\.zip$")).browser_download_url' | head -1)
+            [ -n "$URL" ] || { echo "no .img.zip"; exit 1; }
+            fetch -o "$W/i.zip" "$URL"
+            fetch -o "$W/i.sha" "$URL.sha256"
+            [ "$(grep -Eo '[0-9a-f]{64}' "$W/i.sha" | head -1)" = "$(sha256 -q "$W/i.zip")" ]
+            unzip -p "$W/i.zip" '*.img' > "$REPO/nbsd-ci/nextbsd.img"
+            truncate -s +10G "$REPO/nbsd-ci/nextbsd.img"
+            md=$(mdconfig -a -t vnode -f "$REPO/nbsd-ci/nextbsd.img")
+            gpart recover "$md"
+            P=$(gpart show "$md" | awk '$4=="freebsd-ufs"{print $3; exit}'); [ -n "$P" ] || P=3
+            gpart resize -i "$P" "$md"
+            growfs -y "/dev/${md}p${P}"
+            mount "/dev/${md}p${P}" /mnt
+            mkdir -p /mnt/build
+            tar -C "$REPO" --exclude ./nbsd-ci --exclude ./.git -cf - . | tar -C /mnt/build -xpf -
+            for h in /mnt/root /mnt/var/root; do
+              mkdir -p "$h/.ssh"
+              cp "$REPO/nbsd-ci/key.pub" "$h/.ssh/authorized_keys"
+              chmod 700 "$h/.ssh"; chmod 600 "$h/.ssh/authorized_keys"
+            done
+            printf '\nPermitRootLogin yes\nPubkeyAuthentication yes\n' >> /mnt/etc/ssh/sshd_config
+            { [ -d /mnt/private/etc ] && echo 'nameserver 8.8.8.8' > /mnt/private/etc/resolv.conf; } || echo 'nameserver 8.8.8.8' > /mnt/etc/resolv.conf
+            sync; umount /mnt; mdconfig -d -u "${md#md}"
+            ls -lh "$REPO/nbsd-ci/nextbsd.img"
 
       - name: Install qemu + ovmf
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
 
-      - name: Boot NextBSD kernel and build gershwin (uname -s = NextBSD)
+      - name: Boot NextBSD and build over SSH (uname -s = NextBSD)
         run: |
-          chmod +x .ci/nextbsd/boot-and-poll.sh
-          ./.ci/nextbsd/boot-and-poll.sh
+          set -u
+          chmod 600 nbsd-ci/key
+          OVMF=/usr/share/ovmf/OVMF.fd; [ -f "$OVMF" ] || OVMF=/usr/share/OVMF/OVMF_CODE.fd
+          ACCEL="-accel tcg -cpu qemu64"
+          [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm 2>/dev/null || true
+          { [ -r /dev/kvm ] && [ -w /dev/kvm ]; } && ACCEL="-accel kvm -cpu host"
+          echo "accel=$ACCEL"
+          nohup qemu-system-x86_64 -machine q35 -m 6G -smp 4 $ACCEL -bios "$OVMF" \
+            -drive file=nbsd-ci/nextbsd.img,format=raw,if=virtio \
+            -nic user,model=virtio-net-pci,hostfwd=tcp::2222-:22 \
+            -serial file:nbsd-ci/serial.log -display none -no-reboot > nbsd-ci/qemu.out 2>&1 &
+          QPID=$!
+          SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -i nbsd-ci/key -p 2222 root@127.0.0.1"
+          up=0
+          for i in $(seq 1 120); do
+            if $SSH 'uname -srm' 2>/dev/null; then up=1; break; fi
+            kill -0 "$QPID" 2>/dev/null || { echo "qemu died"; break; }
+            sleep 5
+          done
+          [ "$up" = 1 ] || { echo "guest never came up"; tail -n 80 nbsd-ci/serial.log 2>/dev/null; kill "$QPID" 2>/dev/null; exit 1; }
+          $SSH 'set -e; echo "uname -s = $(uname -s)"; cd /build; sh Library/Scripts/Bootstrap.sh; pkg install -y git; sh Library/Scripts/Checkout.sh; make install; test -d /System/Library'
+          RC=$?
+          $SSH 'poweroff' 2>/dev/null || true
+          sleep 5; kill "$QPID" 2>/dev/null || true
+          exit $RC
 
       - name: Upload serial log
         if: ${{ always() }}
