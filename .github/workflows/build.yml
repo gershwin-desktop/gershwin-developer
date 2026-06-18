@@ -141,79 +141,68 @@ jobs:
         with:
           tool-cache: true
 
-      - name: Generate ephemeral SSH key
+      - name: Install tooling
         run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf socat expect jq unzip
+
+      - name: Download NextBSD image
+        run: |
+          set -e
           mkdir -p nbsd-ci
           ssh-keygen -t ed25519 -N '' -f nbsd-ci/key -C gershwin-ci
+          URL=$(curl -fsSL https://api.github.com/repos/nextbsd-redux/nextbsd/releases/tags/continuous | jq -r '.assets[]|select(.name|test("amd64.*\\.img\\.zip$")).browser_download_url' | head -1)
+          [ -n "$URL" ] || { echo "no .img.zip"; exit 1; }
+          curl -fsSL -o nbsd-ci/img.zip "$URL"
+          curl -fsSL -o nbsd-ci/img.sha "$URL.sha256"
+          [ "$(grep -Eo '[0-9a-f]{64}' nbsd-ci/img.sha | head -1)" = "$(sha256sum nbsd-ci/img.zip | cut -d' ' -f1)" ]
+          unzip -p nbsd-ci/img.zip '*.img' > nbsd-ci/nextbsd.img
+          rm -f nbsd-ci/img.zip nbsd-ci/img.sha
+          truncate -s +10G nbsd-ci/nextbsd.img
 
-      - name: Prep NextBSD image (FreeBSD VM)
-        uses: vmactions/freebsd-vm@v1
-        with:
-          release: "15.0"
-          usesh: true
-          sync: rsync
-          copyback: true
-          cpu: 4
-          mem: 8192
-          prepare: |
-            pkg install -y jq unzip
-          run: |
-            set -e
-            REPO=$PWD
-            W=/var/tmp/nbsd
-            mkdir -p "$W"
-            URL=$(fetch -qo - https://api.github.com/repos/nextbsd-redux/nextbsd/releases/tags/continuous | jq -r '.assets[]|select(.name|test("amd64.*\\.img\\.zip$")).browser_download_url' | head -1)
-            [ -n "$URL" ] || { echo "no .img.zip"; exit 1; }
-            fetch -o "$W/i.zip" "$URL"
-            fetch -o "$W/i.sha" "$URL.sha256"
-            [ "$(grep -Eo '[0-9a-f]{64}' "$W/i.sha" | head -1)" = "$(sha256 -q "$W/i.zip")" ]
-            unzip -p "$W/i.zip" '*.img' > "$REPO/nbsd-ci/nextbsd.img"
-            truncate -s +10G "$REPO/nbsd-ci/nextbsd.img"
-            md=$(mdconfig -a -t vnode -f "$REPO/nbsd-ci/nextbsd.img")
-            gpart recover "$md"
-            P=$(gpart show "$md" | awk '$4=="freebsd-ufs"{print $3; exit}'); [ -n "$P" ] || P=3
-            gpart resize -i "$P" "$md"
-            growfs -y "/dev/${md}p${P}"
-            mount "/dev/${md}p${P}" /mnt
-            mkdir -p /mnt/build
-            tar -C "$REPO" --exclude ./nbsd-ci --exclude ./.git -cf - . | tar -C /mnt/build -xpf -
-            for h in /mnt/root /mnt/var/root; do
-              mkdir -p "$h/.ssh"
-              cp "$REPO/nbsd-ci/key.pub" "$h/.ssh/authorized_keys"
-              chmod 700 "$h/.ssh"; chmod 600 "$h/.ssh/authorized_keys"
-            done
-            printf '\nPermitRootLogin yes\nPubkeyAuthentication yes\n' >> /mnt/etc/ssh/sshd_config
-            { [ -d /mnt/private/etc ] && echo 'nameserver 8.8.8.8' > /mnt/private/etc/resolv.conf; } || echo 'nameserver 8.8.8.8' > /mnt/etc/resolv.conf
-            sync; umount /mnt; mdconfig -d -u "${md#md}"
-            ls -lh "$REPO/nbsd-ci/nextbsd.img"
-
-      - name: Install qemu + ovmf
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
-
-      - name: Boot NextBSD and build over SSH (uname -s = NextBSD)
+      - name: Boot NextBSD, inject key over serial, build over SSH
         run: |
           set -u
           chmod 600 nbsd-ci/key
           OVMF=/usr/share/ovmf/OVMF.fd; [ -f "$OVMF" ] || OVMF=/usr/share/OVMF/OVMF_CODE.fd
           ACCEL="-accel tcg -cpu qemu64"
           [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm 2>/dev/null || true
-          { [ -r /dev/kvm ] && [ -w /dev/kvm ]; } && ACCEL="-accel kvm -cpu host"
-          echo "accel=$ACCEL"
+          { [ -r /dev/kvm ] && [ -w /dev/kvm ]; } && ACCEL="-accel kvm -cpu host" || true
           nohup qemu-system-x86_64 -machine q35 -m 6G -smp 4 $ACCEL -bios "$OVMF" \
             -drive file=nbsd-ci/nextbsd.img,format=raw,if=virtio \
             -nic user,model=virtio-net-pci,hostfwd=tcp::2222-:22 \
-            -serial file:nbsd-ci/serial.log -display none -no-reboot > nbsd-ci/qemu.out 2>&1 &
+            -serial unix:nbsd-ci/serial.sock,server,nowait \
+            -display none -no-reboot > nbsd-ci/qemu.out 2>&1 &
           QPID=$!
+          for i in $(seq 1 60); do [ -S nbsd-ci/serial.sock ] && break; sleep 1; done
+          PUB=$(cat nbsd-ci/key.pub)
+          if expect -f /dev/stdin <<EXP
+          set timeout 900
+          log_file -a nbsd-ci/serial.log
+          spawn socat - UNIX-CONNECT:nbsd-ci/serial.sock
+          expect { "login:" { send "root\r" } timeout { exit 2 } }
+          expect {
+            "assword:" { send "\r"; exp_continue }
+            -re {\# } { }
+            timeout { exit 3 }
+          }
+          send "gpart recover vtbd0 >/dev/null 2>&1; gpart resize -i 3 vtbd0 >/dev/null 2>&1; growfs -y / >/dev/null 2>&1; mkdir -p /var/root/.ssh; echo '$PUB' > /var/root/.ssh/authorized_keys; chmod 700 /var/root/.ssh; chmod 600 /var/root/.ssh/authorized_keys; echo INJECT_OK\r"
+          expect { "INJECT_OK" { } timeout { exit 4 } }
+          EXP
+          then :
+          else echo "serial inject failed"; tail -n 80 nbsd-ci/serial.log 2>/dev/null; kill "$QPID" 2>/dev/null; exit 1
+          fi
           SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -i nbsd-ci/key -p 2222 root@127.0.0.1"
           up=0
-          for i in $(seq 1 120); do
+          for i in $(seq 1 60); do
             if $SSH 'uname -srm' 2>/dev/null; then up=1; break; fi
             kill -0 "$QPID" 2>/dev/null || { echo "qemu died"; break; }
             sleep 5
           done
-          [ "$up" = 1 ] || { echo "guest never came up"; tail -n 80 nbsd-ci/serial.log 2>/dev/null; kill "$QPID" 2>/dev/null; exit 1; }
-          $SSH 'set -e; echo "uname -s = $(uname -s)"; cd /build; sh Library/Scripts/Bootstrap.sh; pkg install -y git; sh Library/Scripts/Checkout.sh; make install; test -d /System/Library'
-          RC=$?
+          [ "$up" = 1 ] || { echo "ssh never came up"; tail -n 80 nbsd-ci/serial.log 2>/dev/null; kill "$QPID" 2>/dev/null; exit 1; }
+          tar -cf - --exclude ./.git --exclude ./nbsd-ci . | $SSH 'mkdir -p /build && tar -xf - -C /build'
+          RC=0
+          $SSH 'set -e; echo "uname -s = $(uname -s)"; cd /build; sh Library/Scripts/Bootstrap.sh; pkg install -y git; sh Library/Scripts/Checkout.sh; make install; test -d /System/Library' || RC=$?
           $SSH 'poweroff' 2>/dev/null || true
           sleep 5; kill "$QPID" 2>/dev/null || true
           exit $RC
