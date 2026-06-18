@@ -171,7 +171,7 @@ jobs:
           nohup qemu-system-x86_64 -machine q35 -m 6G -smp 4 $ACCEL -bios "$OVMF" \
             -drive file=nbsd-ci/nextbsd.img,format=raw,if=virtio \
             -nic user,model=virtio-net-pci,hostfwd=tcp::2222-:22 \
-            -serial unix:nbsd-ci/serial.sock,server,nowait \
+            -serial unix:nbsd-ci/serial.sock,server \
             -display none -no-reboot > nbsd-ci/qemu.out 2>&1 &
           QPID=$!
           for i in $(seq 1 60); do [ -S nbsd-ci/serial.sock ] && break; sleep 1; done
@@ -180,6 +180,7 @@ jobs:
           set timeout 900
           log_file -a nbsd-ci/serial.log
           spawn socat - UNIX-CONNECT:nbsd-ci/serial.sock
+          send "\r"
           expect { "login:" { send "root\r" } timeout { exit 2 } }
           expect {
             "assword:" { send "\r"; exp_continue }
