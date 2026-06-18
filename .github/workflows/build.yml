@@ -136,39 +136,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No NextBSD runner/container exists, so build inside a chroot of the
-      # latest NextBSD disk image, from a FreeBSD VM.
-      - name: Build inside NextBSD rootfs (FreeBSD VM)
+      # Build under the REAL NextBSD kernel. A chroot from a FreeBSD VM runs
+      # under the FreeBSD kernel, so `uname -s` is FreeBSD there and any
+      # uname-conditional build logic (e.g. GNUmakefiles gating -fobjc-arc on
+      # `ifeq ($(UNAME_S),FreeBSD)`) silently takes the wrong branch. Instead:
+      #  1. inside a FreeBSD VM (needed for UFS writes), inject this tree + a
+      #     launchd build harness into NextBSD's read-write disk image;
+      #  2. boot that image under QEMU on the Linux runner — the harness then
+      #     builds gershwin with uname -s = NextBSD and reports via serial.
+      - name: Free up host disk
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+
+      - name: Prep NextBSD image (inject build harness) — FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
           release: "15.0"
           usesh: true
           sync: rsync
+          copyback: true
           cpu: 4
           mem: 8192
           prepare: |
             pkg install -y jq unzip
           run: |
             set -e
-            REPO=$PWD
-            WORK=/var/tmp/nbsd
-            ROOTFS=$WORK/rootfs
-            mkdir -p "$WORK" "$ROOTFS"
-            URL=$(fetch -qo - https://api.github.com/repos/nextbsd-redux/nextbsd/releases/tags/continuous | jq -r '.assets[] | select(.name | test("amd64.*\\.img\\.zip$")) | .browser_download_url' | head -1)
-            fetch -o "$WORK/nextbsd.img.zip" "$URL"
-            fetch -o "$WORK/nextbsd.img.zip.sha256" "$URL.sha256"
-            [ "$(grep -Eo '[0-9a-f]{64}' "$WORK/nextbsd.img.zip.sha256" | head -1)" = "$(sha256 -q "$WORK/nextbsd.img.zip")" ]
-            unzip -p "$WORK/nextbsd.img.zip" '*.img' > "$WORK/nextbsd.img"
-            md=$(mdconfig -a -t vnode -f "$WORK/nextbsd.img")
-            mount "/dev/${md}p3" /mnt
-            tar -C /mnt -cf - . | tar -C "$ROOTFS" -xpf -
-            umount /mnt
-            mdconfig -d -u "${md#md}"
-            mount -t devfs devfs "$ROOTFS/dev"
-            mkdir -p "$ROOTFS/private/etc"
-            cp /etc/resolv.conf "$ROOTFS/private/etc/resolv.conf"
-            mkdir -p "$ROOTFS/build"
-            tar -C "$REPO" -cf - . | tar -C "$ROOTFS/build" -xpf -
-            chroot "$ROOTFS" /bin/sh -e -c 'cd /build && sh Library/Scripts/Bootstrap.sh && pkg install -y git && sh Library/Scripts/Checkout.sh && make install'
-            umount "$ROOTFS/dev" || true
-            [ -d "$ROOTFS/System/Library" ]
+            export TARGET_ARCH=amd64
+            /bin/sh .ci/nextbsd/prep-image.sh
+
+      - name: Install qemu + ovmf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+
+      - name: Boot NextBSD kernel and build gershwin (uname -s = NextBSD)
+        run: |
+          chmod +x .ci/nextbsd/boot-and-poll.sh
+          ./.ci/nextbsd/boot-and-poll.sh
+
+      - name: Upload serial log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextbsd-serial-log
+          path: nbsd-ci/serial.log
+          if-no-files-found: ignore
