@@ -4,7 +4,6 @@ git
 autoconf-2.72p0
 automake-1.16.5p0
 libtool
-libexecinfo
 openpam
 jpeg
 tiff
