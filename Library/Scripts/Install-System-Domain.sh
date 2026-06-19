@@ -29,6 +29,20 @@ else
   CMAKE_SYSTEM_FLAG=""
 fi
 
+# On OpenBSD, X11 headers/libs live under /usr/X11R6, which clang does not search
+# by default. Export the flags once here so they apply to every build stage:
+#   - CFLAGS/OBJCFLAGS/CPPFLAGS let the compilers (and autoconf configure scripts)
+#     find the X11 headers.
+#   - LDFLAGS and LIBRARY_PATH let the linker find libX11 regardless of how a given
+#     package's makefiles handle link flags.
+if [ "$(uname -s)" = "OpenBSD" ]; then
+  export CFLAGS="${CFLAGS:+$CFLAGS }-I/usr/X11R6/include"
+  export OBJCFLAGS="${OBJCFLAGS:+$OBJCFLAGS }-I/usr/X11R6/include"
+  export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
+  export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
+  export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+fi
+
 # Source the GNUstep environment, which is installed by the corelibs stage via
 # tools-make.  The corelibs stage sources it itself at the right moment, so this
 # is only used by the individual app/component stages when they are run on their
@@ -206,6 +220,15 @@ build_corelibs() {
 
 build_workspace() {
   cd "$REPOS_DIR/gershwin-workspace"
+  # OpenBSD ships autoconf and automake with version-suffixed binaries;
+  # autoreconf needs these env vars to pick the right versions.
+  if [ "$(uname -s)" = "OpenBSD" ]; then
+    export AUTOCONF_VERSION
+    export AUTOMAKE_VERSION
+    AUTOCONF_VERSION=$(ls /usr/local/bin/autoconf-* 2>/dev/null | sed 's|.*/autoconf-||' | sort -V | tail -1)
+    AUTOMAKE_VERSION=$(ls /usr/local/bin/automake-* 2>/dev/null | sed 's|.*/automake-||' | sort -V | tail -1)
+    echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
+  fi
   autoreconf -fi
   ./configure $BUILD_FLAG
   $MAKE_CMD -j"$CPUS" || exit 1

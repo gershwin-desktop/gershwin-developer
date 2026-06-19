@@ -15,6 +15,8 @@ elif [ "$(uname -s)" = "NextBSD" ]; then
     OS_ID="nextbsd"
 elif [ "$(uname -s)" = "FreeBSD" ]; then
     OS_ID="freebsd"
+elif [ "$(uname -s)" = "OpenBSD" ]; then
+    OS_ID="openbsd"
 else
     echo "Unsupported or unknown OS."
     exit 1
@@ -101,6 +103,29 @@ case "$OS_ID" in
     if [ -n "$missing" ]; then
       echo "Installing:$missing"
       pkg install -y $missing
+    else
+      echo "All required packages are already installed."
+    fi
+    ;;
+
+  openbsd)
+    while IFS= read -r pkg || [ -n "$pkg" ]; do
+      [ -z "$pkg" ] && continue
+      # Strip any port-revision suffix (e.g. autoconf-2.72p0 -> autoconf-2.72)
+      # and check if a package with that stem is already installed.
+      stem="${pkg%p[0-9]*}"
+      if ! pkg_info | grep -q "^${stem}[- ]"; then
+        missing="$missing $pkg"
+      fi
+    done < "$REQUIREMENTS_FILE"
+
+    if [ -n "$missing" ]; then
+      echo "Installing:$missing"
+      # Install packages one by one so a single missing package doesn't abort
+      # installation of the rest.
+      for pkg in $missing; do
+        pkg_add -I "$pkg" || echo "Warning: could not install $pkg, continuing..."
+      done
     else
       echo "All required packages are already installed."
     fi

@@ -14,6 +14,11 @@ detect_platform() {
             MAKE_CMD="gmake"
             NPROC_CMD="sysctl -n hw.ncpu"
             ;;
+        OpenBSD)
+            PLATFORM="openbsd"
+            MAKE_CMD="gmake"
+            NPROC_CMD="sysctl -n hw.ncpu"
+            ;;
         NextBSD)
             PLATFORM="nextbsd"
             MAKE_CMD="gmake"
