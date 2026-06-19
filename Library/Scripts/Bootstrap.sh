@@ -11,6 +11,8 @@ if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS_ID="$ID"
     OS_LIKE="$ID_LIKE"
+elif [ "$(uname -s)" = "NextBSD" ]; then
+    OS_ID="nextbsd"
 elif [ "$(uname -s)" = "FreeBSD" ]; then
     OS_ID="freebsd"
 elif [ "$(uname -s)" = "OpenBSD" ]; then
@@ -124,6 +126,22 @@ case "$OS_ID" in
       for pkg in $missing; do
         pkg_add -I "$pkg" || echo "Warning: could not install $pkg, continuing..."
       done
+    else
+      echo "All required packages are already installed."
+    fi
+    ;;
+
+  nextbsd)
+    while IFS= read -r pkg || [ -n "$pkg" ]; do
+      [ -z "$pkg" ] && continue
+      if ! pkg info "$pkg" >/dev/null 2>&1; then
+        missing="$missing $pkg"
+      fi
+    done < "$REQUIREMENTS_FILE"
+
+    if [ -n "$missing" ]; then
+      echo "Installing:$missing"
+      pkg install -y $missing
     else
       echo "All required packages are already installed."
     fi

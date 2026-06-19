@@ -1,4 +1,3 @@
-
 #!/bin/sh
 set -e
 
@@ -11,311 +10,422 @@ fi
 detect_platform
 export_vars
 
-# On OpenBSD, X11 headers/libs live under /usr/X11R6 which clang does not
-# search by default.  Export CPPFLAGS/LDFLAGS for autoconf configure scripts,
-# and collect the GNUstep make variables separately so they can be passed as
-# discrete arguments (never fold extra args into MAKE_CMD itself, since quoted
-# run_make would then be treated as a single command name by the shell).
-MAKE_EXTRA_ARGS=
-if [ "$(uname -s)" = "OpenBSD" ]; then
-    # X11 headers/libs live under /usr/X11R6 which clang does not search by
-    # default.
-    #
-    # Compilation: export CFLAGS/OBJCFLAGS — GNUstep make appends these to its
-    # own compile flags without overriding any per-package variables.
-    # CPPFLAGS is also set for autoconf configure scripts (./configure).
-    #
-    # Linking: export LIBRARY_PATH — clang/ld on OpenBSD honour this env var at
-    # link time (same role as LD_LIBRARY_PATH but for the link step), so libX11
-    # is found regardless of what GNUstep make or config.make does with LDFLAGS.
-    # LDFLAGS is also set for autoconf configure scripts so they can find libs.
-    export CFLAGS="${CFLAGS:+$CFLAGS }-I/usr/X11R6/include"
-    export OBJCFLAGS="${OBJCFLAGS:+$OBJCFLAGS }-I/usr/X11R6/include"
-    export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
-    export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
-    export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-fi
-
-# run_make: wrapper that prepends MAKE_EXTRA_ARGS (if any) as discrete make
-# variable assignments, then forwards all remaining arguments to MAKE_CMD.
-run_make() {
-    if [ -n "$MAKE_EXTRA_ARGS" ]; then
-        # Use set -- to split MAKE_EXTRA_ARGS into separate words safely.
-        set -- $MAKE_EXTRA_ARGS "$@"
-    fi
-    "$MAKE_CMD" "$@"
-}
-
 export REPOS_DIR="$WORKDIR/Library/Sources"
 
-cd "$REPOS_DIR/gershwin-system"
-run_make install
-export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
-
-cd "$REPOS_DIR/gershwin-assets"
-cp -R Library/* /System/Library/
-
-# Patch libdispatch
-echo "Patching libdispatch..."
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/swift-corelibs-libdispatch" sh ./apply_swift-corelibs-libdispatch_patch.sh )
-
-# Build libdispatch first - provides BlocksRuntime needed by tools-make configure
-echo "Building/installing libdispatch..."
-if [ -d "$REPOS_DIR/swift-corelibs-libdispatch/Build" ] ; then
-  rm -rf "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+# Detect NextBSD - libdispatch is provided by the base system
+if [ -d "/usr/lib/system" ]; then
+  NEXTBSD=1
+  echo "NextBSD detected: using system libdispatch from /usr/lib/system"
+  # config.guess does not recognize NextBSD; tell configure we are FreeBSD
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    amd64) ARCH="x86_64" ;;
+  esac
+  BUILD_FLAG="--build=${ARCH}-nextbsd-freebsd"
+  CMAKE_SYSTEM_FLAG="-DCMAKE_SYSTEM_NAME=FreeBSD"
+else
+  NEXTBSD=0
+  BUILD_FLAG=""
+  CMAKE_SYSTEM_FLAG=""
 fi
-mkdir -p "$REPOS_DIR/swift-corelibs-libdispatch/Build"
 
-cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
-
-cmake .. \
-  -DCMAKE_INSTALL_PREFIX=/System/Library \
-  -DCMAKE_INSTALL_LIBDIR=Libraries \
-  -DINSTALL_DISPATCH_HEADERS_DIR=/System/Library/Headers/dispatch \
-  -DINSTALL_BLOCK_HEADERS_DIR=/System/Library/Headers \
-  -DINSTALL_OS_HEADERS_DIR=/System/Library/Headers/os \
-  -DINSTALL_PRIVATE_HEADERS=ON \
-  -DCMAKE_INSTALL_MANDIR=Documentation/man \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=clang \
-  -DCMAKE_CXX_COMPILER=clang++
-
-run_make -j"$CPUS" || exit 1
-run_make install || exit 1
-
-# Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
-# Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
-echo "Building/installing tools-make..."
-cd "$REPOS_DIR/tools-make"
-run_make distclean 2>/dev/null || true
-./configure \
-  --with-config-file=/System/Library/Preferences/GNUstep.conf \
-  --with-layout=gershwin \
-  --with-library-combo=ng-gnu-gnu \
-  --with-objc-lib-flag=" " \
-  LDFLAGS="-L/System/Library/Libraries" \
-  CPPFLAGS="-I/System/Library/Headers" \
-  libobjc_LIBS=" "
-run_make || exit 1
-run_make install
-
-. /System/Library/Makefiles/GNUstep.sh
-
-# Build libobjc2 - gnustep-config now available for paths
-echo "Building/installing libobjc2..."
-if [ -d "$REPOS_DIR/libobjc2/Build" ] ; then
-  rm -rf "$REPOS_DIR/libobjc2/Build"
-fi
-mkdir -p "$REPOS_DIR/libobjc2/Build"
-
-cd "$REPOS_DIR/libobjc2/Build"
-
-cmake .. \
-  -DGNUSTEP_INSTALL_TYPE=SYSTEM \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=clang \
-  -DCMAKE_CXX_COMPILER=clang++ \
-  -DEMBEDDED_BLOCKS_RUNTIME=OFF \
-  -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
-  -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
-
-run_make -j"$CPUS" || exit 1
-run_make install || exit 1
-
-export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
-
-cd "$REPOS_DIR/libs-base"
-./configure \
-  --with-dispatch-include=/System/Library/Headers \
-  --with-dispatch-library=/System/Library/Libraries
-run_make -j"$CPUS" || exit 1
-run_make install
-run_make clean
-
-# Patch libs-gui
-echo "Patching libs-gui..."
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-mouseup_patch.sh )
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-dropdown-tracking_patch.sh ) # https://github.com/gnustep/libs-back/issues/76
-
-cd "$REPOS_DIR/libs-gui"
-./configure
-run_make -j"$CPUS" || exit 1
-run_make install
-run_make clean
-
-# Patch libs-back
-echo "Patching libs-back..."
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-back" sh ./apply_libs_back_net_wm_pid_patch.sh ) # https://github.com/gnustep/libs-back/issues/74
-
-cd "$REPOS_DIR/libs-back"
-export fonts=no
-./configure
-run_make -j"$CPUS" || exit 1
-run_make install
-run_make clean
-
-# Hook into tools-make to inject build time and git hash into Info-gnustep.plist files
-cd "$REPOS_DIR/gershwin-components/plistupdate"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-sh -e ./setup-integration.sh
-run_make clean
-
-# Patch gershwin-workspace: fix swap16/32/64 macro clash on OpenBSD
-echo "Patching gershwin-workspace..."
-( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/gershwin-workspace" sh ./apply_gershwin-workspace-dsbbuddy-swap_patch.sh )
-
-cd "$REPOS_DIR/gershwin-workspace"
-# OpenBSD ships autoconf and automake with version-suffixed binaries;
-# autoreconf needs these env vars to find the right versions.
+# On OpenBSD, X11 headers/libs live under /usr/X11R6, which clang does not search
+# by default. Export the flags once here so they apply to every build stage:
+#   - CFLAGS/OBJCFLAGS/CPPFLAGS let the compilers (and autoconf configure scripts)
+#     find the X11 headers.
+#   - LDFLAGS and LIBRARY_PATH let the linker find libX11 regardless of how a given
+#     package's makefiles handle link flags.
 if [ "$(uname -s)" = "OpenBSD" ]; then
+  export CFLAGS="${CFLAGS:+$CFLAGS }-I/usr/X11R6/include"
+  export OBJCFLAGS="${OBJCFLAGS:+$OBJCFLAGS }-I/usr/X11R6/include"
+  export CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }-I/usr/X11R6/include"
+  export LDFLAGS="${LDFLAGS:+$LDFLAGS }-L/usr/X11R6/lib"
+  export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+fi
+
+# Source the GNUstep environment, which is installed by the corelibs stage via
+# tools-make.  The corelibs stage sources it itself at the right moment, so this
+# is only used by the individual app/component stages when they are run on their
+# own (e.g. "make workspace" in CI after "make corelibs").
+ensure_gnustep_env() {
+  if [ ! -f /System/Library/Makefiles/GNUstep.sh ]; then
+    echo "GNUstep environment not found at /System/Library/Makefiles/GNUstep.sh."
+    echo "Build the core libraries first:  make corelibs"
+    exit 1
+  fi
+  . /System/Library/Makefiles/GNUstep.sh
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+}
+
+build_corelibs() {
+  cd "$REPOS_DIR/gershwin-system"
+  $MAKE_CMD install
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+
+  cd "$REPOS_DIR/gershwin-assets"
+  cp -R Library/* /System/Library/
+
+  if [ "$NEXTBSD" -eq 0 ]; then
+    # Patch libdispatch
+    echo "Patching libdispatch..."
+    ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/swift-corelibs-libdispatch" sh ./apply_swift-corelibs-libdispatch_patch.sh )
+
+    # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
+    echo "Building/installing libdispatch..."
+    if [ -d "$REPOS_DIR/swift-corelibs-libdispatch/Build" ] ; then
+      rm -rf "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+    fi
+    mkdir -p "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+
+    cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+
+    cmake .. \
+      -DCMAKE_INSTALL_PREFIX=/System/Library \
+      -DCMAKE_INSTALL_LIBDIR=Libraries \
+      -DINSTALL_DISPATCH_HEADERS_DIR=/System/Library/Headers/dispatch \
+      -DINSTALL_BLOCK_HEADERS_DIR=/System/Library/Headers \
+      -DINSTALL_OS_HEADERS_DIR=/System/Library/Headers/os \
+      -DINSTALL_PRIVATE_HEADERS=ON \
+      -DCMAKE_INSTALL_MANDIR=Documentation/man \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++
+
+    "$MAKE_CMD" -j"$CPUS" || exit 1
+    "$MAKE_CMD" install || exit 1
+  else
+    echo "Skipping libdispatch build (provided by NextBSD base system)"
+  fi
+
+  # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
+  # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
+  echo "Building/installing tools-make..."
+  cd "$REPOS_DIR/tools-make"
+  $MAKE_CMD distclean 2>/dev/null || true
+  if [ "$NEXTBSD" -eq 1 ]; then
+    ./configure \
+      $BUILD_FLAG \
+      --with-config-file=/System/Library/Preferences/GNUstep.conf \
+      --with-layout=gershwin \
+      --with-library-combo=ng-gnu-gnu \
+      --with-objc-lib-flag=" " \
+      LDFLAGS="-L/usr/lib/system" \
+      CPPFLAGS="-I/usr/include" \
+      libobjc_LIBS=" "
+  else
+    ./configure \
+      --with-config-file=/System/Library/Preferences/GNUstep.conf \
+      --with-layout=gershwin \
+      --with-library-combo=ng-gnu-gnu \
+      --with-objc-lib-flag=" " \
+      LDFLAGS="-L/System/Library/Libraries" \
+      CPPFLAGS="-I/System/Library/Headers" \
+      libobjc_LIBS=" "
+  fi
+  $MAKE_CMD || exit 1
+  $MAKE_CMD install
+
+  . /System/Library/Makefiles/GNUstep.sh
+
+  # Build libobjc2 - gnustep-config now available for paths
+  echo "Building/installing libobjc2..."
+  if [ -d "$REPOS_DIR/libobjc2/Build" ] ; then
+    rm -rf "$REPOS_DIR/libobjc2/Build"
+  fi
+  mkdir -p "$REPOS_DIR/libobjc2/Build"
+
+  cd "$REPOS_DIR/libobjc2/Build"
+
+  if [ "$NEXTBSD" -eq 1 ]; then
+    # Workaround: Clang silently skips #include "objc-visibility.h" in libobjc2
+    # headers when C++ standard library headers (e.g. <vector>, <functional>) are
+    # included first in ObjC++ translation units.  This leaves OBJC_PUBLIC
+    # undefined, breaking arc.mm and selector_table.cc.  Force-define it as empty
+    # (matching the non-Windows definition in objc-visibility.h).
+    # See: https://github.com/nickhutchinson/libcxx/issues/XXX (if filed upstream)
+    cmake .. \
+      $CMAKE_SYSTEM_FLAG \
+      -DGNUSTEP_INSTALL_TYPE=SYSTEM \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ \
+      '-DCMAKE_C_FLAGS=-DOBJC_PUBLIC=' \
+      '-DCMAKE_CXX_FLAGS=-DOBJC_PUBLIC=' \
+      '-DCMAKE_OBJC_FLAGS=-DOBJC_PUBLIC=' \
+      '-DCMAKE_OBJCXX_FLAGS=-DOBJC_PUBLIC=' \
+      -DEMBEDDED_BLOCKS_RUNTIME=OFF \
+      -DBlocksRuntime_INCLUDE_DIR=/usr/include \
+      -DBlocksRuntime_LIBRARIES=/usr/lib/system/libBlocksRuntime.so
+  else
+    cmake .. \
+      -DGNUSTEP_INSTALL_TYPE=SYSTEM \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ \
+      -DEMBEDDED_BLOCKS_RUNTIME=OFF \
+      -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
+      -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
+  fi
+
+  "$MAKE_CMD" -j"$CPUS" || exit 1
+  "$MAKE_CMD" install || exit 1
+
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+
+  cd "$REPOS_DIR/libs-base"
+  if [ "$NEXTBSD" -eq 1 ]; then
+    ./configure \
+      $BUILD_FLAG \
+      --with-dispatch-include=/usr/include \
+      --with-dispatch-library=/usr/lib/system \
+      --with-zeroconf-api=mdns
+  else
+    ./configure \
+      --with-dispatch-include=/System/Library/Headers \
+      --with-dispatch-library=/System/Library/Libraries
+  fi
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+
+  # Patch libs-gui
+  echo "Patching libs-gui..."
+  ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-mouseup_patch.sh )
+  ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-gui" sh ./apply_libs-gui-menu-dropdown-tracking_patch.sh ) # https://github.com/gnustep/libs-back/issues/76
+
+  cd "$REPOS_DIR/libs-gui"
+  ./configure $BUILD_FLAG
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+
+  # Patch libs-back
+  echo "Patching libs-back..."
+  ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-back" sh ./apply_libs_back_net_wm_pid_patch.sh ) # https://github.com/gnustep/libs-back/issues/74
+
+  cd "$REPOS_DIR/libs-back"
+  export fonts=no
+  ./configure $BUILD_FLAG
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+
+  # Hook into tools-make to inject build time and git hash into Info-gnustep.plist files
+  cd "$REPOS_DIR/gershwin-components/plistupdate"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  sh -e ./setup-integration.sh
+  $MAKE_CMD clean
+}
+
+build_workspace() {
+  cd "$REPOS_DIR/gershwin-workspace"
+  # OpenBSD ships autoconf and automake with version-suffixed binaries;
+  # autoreconf needs these env vars to pick the right versions.
+  if [ "$(uname -s)" = "OpenBSD" ]; then
     export AUTOCONF_VERSION
     export AUTOMAKE_VERSION
     AUTOCONF_VERSION=$(ls /usr/local/bin/autoconf-* 2>/dev/null | sed 's|.*/autoconf-||' | sort -V | tail -1)
     AUTOMAKE_VERSION=$(ls /usr/local/bin/automake-* 2>/dev/null | sed 's|.*/automake-||' | sort -V | tail -1)
     echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
-fi
-autoreconf -fi
-# CPPFLAGS/LDFLAGS already exported above with X11 paths for OpenBSD.
-# Pass them to configure as well so it finds X11.
-./configure ${CPPFLAGS:+CPPFLAGS="$CPPFLAGS"} ${LDFLAGS:+LDFLAGS="$LDFLAGS"}
-run_make -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  fi
+  autoreconf -fi
+  ./configure $BUILD_FLAG
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+}
 
-cd "$REPOS_DIR/gershwin-systempreferences"
-run_make -j"$CPUS" || exit 1
-run_make install
-run_make clean
+build_systempreferences() {
+  cd "$REPOS_DIR/gershwin-systempreferences"
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+}
 
-cd "$REPOS_DIR/gershwin-eau-theme"
-run_make -j"$CPUS" || exit 1
-run_make install
-run_make clean
+build_eau_theme() {
+  cd "$REPOS_DIR/gershwin-eau-theme"
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+}
 
-cd "$REPOS_DIR/gershwin-terminal"
-# On glibc based Linux systems, -liconv should not be used as iconv is part of glibc
-# On OpenBSD, iconv is also part of libc (no separate libiconv needed)
-# TODO: Port this fix to GNUmakefile.preamble properly
-if [ "$(uname)" = "Linux" ] ; then
-  sed -i -e 's|-liconv ||g' GNUmakefile.preamble
-  run_make CPPFLAGS="-D__GNU__ -DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1 # Do not include termio.h which is outdated
-elif [ "$(uname)" = "OpenBSD" ] ; then
-  # OpenBSD sed does not reliably accept `sed -i ''` (space + empty suffix).
-  # Use a portable temp-file approach instead.
-  sed -e 's|-liconv ||g' GNUmakefile.preamble > /tmp/_preamble.tmp \
-    && mv /tmp/_preamble.tmp GNUmakefile.preamble
-  run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-else
-  run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-fi
-run_make install
-run_make clean
+build_terminal() {
+  cd "$REPOS_DIR/gershwin-terminal"
+  # On glibc based Linux systems, -liconv should not be used as iconv is part of glibc
+  # TODO: Port this fix to GNUmakefile.preamble properly
+  if [ "$(uname)" = "Linux" ] ; then
+    sed -i -e 's|-liconv ||g' GNUmakefile.preamble
+    $MAKE_CMD CPPFLAGS="-D__GNU__ -DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1 # Do not include termio.h which is outdated
+  else
+    $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  fi
+  $MAKE_CMD install
+  $MAKE_CMD clean
+}
 
-cd "$REPOS_DIR/gershwin-textedit"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+build_textedit() {
+  cd "$REPOS_DIR/gershwin-textedit"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+}
 
-cd "$REPOS_DIR/gershwin-windowmanager/"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+build_windowmanager() {
+  cd "$REPOS_DIR/gershwin-windowmanager/"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+}
 
-cd "$REPOS_DIR/gershwin-components/Menu"
-./configure || exit 1
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+build_components() {
+  cd "$REPOS_DIR/gershwin-components/Menu"
+  ./configure $BUILD_FLAG || exit 1
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/DirectoryServices"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/DirectoryServices"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/LoginWindow"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/LoginWindow"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/appwrap"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/appwrap"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/pkgwrap"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/pkgwrap"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Display"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Display"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Keyboard"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Keyboard"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/GlobalShortcuts"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/GlobalShortcuts"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Screenshot"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Screenshot"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Printers"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Printers"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Network"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Network"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Sound"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Sound"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Sharing"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Sharing"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Console"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Console"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/SudoAskPass"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/SudoAskPass"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Processes"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Processes"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 
-cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 
-cd "$REPOS_DIR/gershwin-components/Assistants/CreateLiveMediaAssistant"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
-cd "$REPOS_DIR/gershwin-components/Assistants/InstallationAssistant"
-run_make CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
-run_make install
-run_make clean
-cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
-run_make clean
+  cd "$REPOS_DIR/gershwin-components/Assistants/CreateLiveMediaAssistant"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+  cd "$REPOS_DIR/gershwin-components/Assistants/InstallationAssistant"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+  cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
+  $MAKE_CMD clean
+}
+
+# Dispatch on the requested target.  Default "all" reproduces the original
+# end-to-end System Domain install in the exact same order.
+TARGET="${1:-all}"
+case "$TARGET" in
+  corelibs)
+    build_corelibs
+    ;;
+  workspace)
+    ensure_gnustep_env
+    build_workspace
+    ;;
+  systempreferences)
+    ensure_gnustep_env
+    build_systempreferences
+    ;;
+  eau-theme)
+    ensure_gnustep_env
+    build_eau_theme
+    ;;
+  terminal)
+    ensure_gnustep_env
+    build_terminal
+    ;;
+  textedit)
+    ensure_gnustep_env
+    build_textedit
+    ;;
+  windowmanager)
+    ensure_gnustep_env
+    build_windowmanager
+    ;;
+  components)
+    ensure_gnustep_env
+    build_components
+    ;;
+  all)
+    build_corelibs
+    build_workspace
+    build_systempreferences
+    build_eau_theme
+    build_terminal
+    build_textedit
+    build_windowmanager
+    build_components
+    ;;
+  *)
+    echo "Unknown target: $TARGET"
+    echo "Valid targets: corelibs workspace systempreferences eau-theme terminal textedit windowmanager components all"
+    exit 1
+    ;;
+esac
 
 echo ""
 echo "Done."
