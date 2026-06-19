@@ -6,6 +6,7 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 
 * FreeBSD
 * GhostBSD (requires `pkg install -g 'GhostBSD*-dev'` for building)
+* OpenBSD
 * Arch Linux
 * Artix (Arch Linux without systemd)
 * Debian
