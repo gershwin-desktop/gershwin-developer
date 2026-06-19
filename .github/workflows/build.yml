@@ -155,7 +155,8 @@ jobs:
             ./Library/Scripts/Checkout.sh
             make install
             mkdir -p artifacts/OpenBSD/7.8/amd64
-            tar -C / -cJf artifacts/OpenBSD/7.8/amd64/system.txz /System
+            # OpenBSD's base tar has no -J (xz); use -z (gzip), which it supports.
+            tar -C / -czf artifacts/OpenBSD/7.8/amd64/system.tgz /System
             TIMESTAMP=$(date +%y%m%d%H%M%S)
             find /System -type f \( -perm -0100 -o -perm -0010 -o -perm -0001 \) \
               -exec ldd {} 2>/dev/null \; 2>/dev/null \
