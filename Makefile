@@ -11,8 +11,35 @@ system: check_root
 		echo "Gershwin System Domain appears to be already installed."; \
 	else \
 		echo "Installing GNUstep System Domain..."; \
-		FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh; \
+		FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh all; \
 	fi
+
+# Granular build targets. Each builds a single component from
+# Library/Sources, assuming the core libraries are already installed
+# (run "make corelibs" first). Useful for per-repo CI.
+corelibs: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh corelibs
+
+workspace: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh workspace
+
+systempreferences: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh systempreferences
+
+eau-theme: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh eau-theme
+
+terminal: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh terminal
+
+textedit: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh textedit
+
+windowmanager: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh windowmanager
+
+components: check_root
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/Install-System-Domain.sh components
 
 uninstall: check_root
 	@if [ -d "/usr/lib/system" ]; then \

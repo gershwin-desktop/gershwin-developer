@@ -6,6 +6,13 @@ set -e
 
 PINNED="${PINNED:-0}"
 
+# Repositories to skip cloning/updating, given as a space- or comma-separated
+# list of repo names (e.g. SKIP_REPOS="gershwin-workspace"). Useful when the
+# source tree for a repo is provided by other means, such as a CI checkout of
+# the repo under test.
+SKIP_REPOS="${SKIP_REPOS:-}"
+SKIP_REPOS=$(printf '%s' "$SKIP_REPOS" | tr ',' ' ')
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPOS_DIR="$SCRIPT_DIR/../Sources"
 
@@ -32,6 +39,13 @@ cd "$REPOS_DIR"
 
 for REPO in $REPOS; do
     NAME=$(basename "$REPO" .git)
+
+    case " $SKIP_REPOS " in
+        *" $NAME "*)
+            echo "Skipping $NAME (in SKIP_REPOS)..."
+            continue
+            ;;
+    esac
 
     if [ -d "$NAME/.git" ]; then
         echo "Updating $NAME..."
