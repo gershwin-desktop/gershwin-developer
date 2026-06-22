@@ -54,3 +54,4 @@ automake
 rpcbind
 dbus-x11
 patchelf
+libarchive-dev
