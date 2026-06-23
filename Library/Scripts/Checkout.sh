@@ -94,6 +94,9 @@ fi
 # checkout_commit gershwin-terminal            71124e3
 # checkout_commit gershwin-textedit            3df6db8
 
+# Temporarily use a WM branch until it is tested well enough to be merged
+checkout_commit gershwin-windowmanager       metadata
+
 # Lower CMake version requirements
 # Use a temp-file approach for in-place sed to avoid -i portability issues
 # across GNU/Linux, FreeBSD and OpenBSD.  All three support -E for ERE.
