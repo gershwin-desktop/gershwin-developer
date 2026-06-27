@@ -361,6 +361,11 @@ build_components() {
   $MAKE_CMD install
   $MAKE_CMD clean
 
+  cd "$REPOS_DIR/gershwin-components/Player"
+  $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
+
   cd "$REPOS_DIR/gershwin-components/Assistants/AssistantFramework"
   $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
 
