@@ -220,6 +220,7 @@ build_corelibs() {
 
 build_workspace() {
   cd "$REPOS_DIR/gershwin-workspace"
+  git checkout metadata # TODO: Remove once gershwin-workspace #100 is merged
   # OpenBSD ships autoconf and automake with version-suffixed binaries;
   # autoreconf needs these env vars to pick the right versions.
   if [ "$(uname -s)" = "OpenBSD" ]; then
