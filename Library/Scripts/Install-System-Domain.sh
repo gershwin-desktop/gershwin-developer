@@ -218,7 +218,6 @@ build_corelibs() {
   $MAKE_CMD clean
 
   cd "$REPOS_DIR/libs-av"
-  ./configure $BUILD_FLAG
   $MAKE_CMD -j"$CPUS" || exit 1
   $MAKE_CMD install
   $MAKE_CMD clean
