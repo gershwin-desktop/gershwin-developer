@@ -1,0 +1,280 @@
+diff --git a/AVFoundation/AVMediaFormat.h b/AVFoundation/AVMediaFormat.h
+index a3da042..34081c0 100644
+--- a/AVFoundation/AVMediaFormat.h
++++ b/AVFoundation/AVMediaFormat.h
+@@ -13,6 +13,14 @@ extern NSString * const AVMediaTypeText;
+ extern NSString * const AVMetadataCommonKeyTitle;
+ extern NSString * const AVMetadataCommonKeyArtist;
+ extern NSString * const AVMetadataCommonKeyAlbumName;
++extern NSString * const AVMetadataCommonKeyComposer;
++extern NSString * const AVMetadataCommonKeyGenre;
++extern NSString * const AVMetadataCommonKeyTrackNumber;
++extern NSString * const AVMetadataCommonKeyArtwork;
++extern NSString * const AVMetadataCommonKeyCreationDate;
++extern NSString * const AVMetadataCommonKeySoftware;
++extern NSString * const AVMetadataKeySpaceCommon;
++extern NSString * const AVMetadataKeySpaceID3;
+ extern NSString * const AVPlayerItemDidPlayToEndTimeNotification;
+
+ #endif
+diff --git a/AVFoundation/AVMediaFormat.m b/AVFoundation/AVMediaFormat.m
+index c3c1a97..f64a907 100644
+--- a/AVFoundation/AVMediaFormat.m
++++ b/AVFoundation/AVMediaFormat.m
+@@ -6,5 +6,13 @@
+ NSString * const AVMetadataCommonKeyTitle = @"title";
+ NSString * const AVMetadataCommonKeyArtist = @"artist";
+ NSString * const AVMetadataCommonKeyAlbumName = @"albumName";
++NSString * const AVMetadataCommonKeyComposer = @"composer";
++NSString * const AVMetadataCommonKeyGenre = @"genre";
++NSString * const AVMetadataCommonKeyTrackNumber = @"trackNumber";
++NSString * const AVMetadataCommonKeyArtwork = @"artwork";
++NSString * const AVMetadataCommonKeyCreationDate = @"creationDate";
++NSString * const AVMetadataCommonKeySoftware = @"software";
++NSString * const AVMetadataKeySpaceCommon = @"AVMetadataKeySpaceCommon";
++NSString * const AVMetadataKeySpaceID3 = @"AVMetadataKeySpaceID3";
+ NSString * const AVPlayerItemDidPlayToEndTimeNotification =
+   @"AVPlayerItemDidPlayToEndTimeNotification";
+diff --git a/AVFoundation/AVURLAsset.m b/AVFoundation/AVURLAsset.m
+index 96bc374..a2ce4d8 100644
+--- a/AVFoundation/AVURLAsset.m
++++ b/AVFoundation/AVURLAsset.m
+@@ -7,6 +7,7 @@
+ #import <Foundation/NSPathUtilities.h>
+ #import <Foundation/NSDictionary.h>
+ #import <Foundation/NSArray.h>
++#import <Foundation/NSData.h>
+
+ #ifdef AVFOUNDATION_HAVE_FFMPEG
+ #include <libavformat/avformat.h>
+@@ -43,6 +44,22 @@
+   return NO;
+ }
+
++// Map FFmpeg metadata keys to AVMetadataCommonKey constants.
++// Returns the common key string, or nil if no mapping exists.
++static NSString *
++_commonKeyForFFmpegKey(const char *key)
++{
++  if (strcmp(key, "title") == 0)      return AVMetadataCommonKeyTitle;
++  if (strcmp(key, "artist") == 0)     return AVMetadataCommonKeyArtist;
++  if (strcmp(key, "album") == 0)      return AVMetadataCommonKeyAlbumName;
++  if (strcmp(key, "composer") == 0)   return AVMetadataCommonKeyComposer;
++  if (strcmp(key, "genre") == 0)      return AVMetadataCommonKeyGenre;
++  if (strcmp(key, "track") == 0)      return AVMetadataCommonKeyTrackNumber;
++  if (strcmp(key, "date") == 0)       return AVMetadataCommonKeyCreationDate;
++  if (strcmp(key, "encoder") == 0)    return AVMetadataCommonKeySoftware;
++  return nil;
++}
++
+ @implementation AVURLAsset
+
+ + (NSArray *) audiovisualTypes
+@@ -148,6 +165,35 @@ - (id) initWithURL: (NSURL *)URL options: (NSDictionary *)options
+                 600);
+             }
+
++          // Read format-level metadata (ID3 tags, etc.)
++          {
++            AVDictionaryEntry *tag = NULL;
++            while ((tag = av_dict_get(formatContext->metadata, "",
++              tag, AV_DICT_IGNORE_SUFFIX)) != NULL)
++              {
++                NSString *key = [NSString stringWithUTF8String: tag->key];
++                NSString *value = [NSString stringWithUTF8String: tag->value];
++                NSString *commonKey;
++                AVMetadataItem *item;
++
++                commonKey = _commonKeyForFFmpegKey(tag->key);
++                if (commonKey != nil)
++                  {
++                    item = [[AVMetadataItem alloc] initWithKey: commonKey
++                                                      keySpace: AVMetadataKeySpaceCommon
++                                                         value: value];
++                  }
++                else
++                  {
++                    item = [[AVMetadataItem alloc] initWithKey: key
++                                                      keySpace: AVMetadataKeySpaceID3
++                                                         value: value];
++                  }
++                [metadata addObject: item];
++                RELEASE(item);
++              }
++          }
++
+           for (i = 0; i < formatContext->nb_streams; i++)
+             {
+               AVStream *stream;
+@@ -187,6 +233,31 @@ - (id) initWithURL: (NSURL *)URL options: (NSDictionary *)options
+                   RELEASE(track);
+                 }
+             }
++
++          // Look for attached pictures (album art) in video streams
++          // with AV_DISPOSITION_ATTACHED_PIC disposition.
++          for (i = 0; i < formatContext->nb_streams; i++)
++            {
++              AVStream *stream = formatContext->streams[i];
++              if (stream->disposition & AV_DISPOSITION_ATTACHED_PIC)
++                {
++                  AVPacket *pkt = &stream->attached_pic;
++                  if (pkt->size > 0 && pkt->data != NULL)
++                    {
++                      NSData *imageData;
++                      AVMetadataItem *item;
++
++                      imageData = [NSData dataWithBytes: pkt->data
++                                                  length: pkt->size];
++                      item = [[AVMetadataItem alloc]
++                        initWithKey: AVMetadataCommonKeyArtwork
++                             keySpace: AVMetadataKeySpaceCommon
++                                value: imageData];
++                      [metadata addObject: item];
++                      RELEASE(item);
++                    }
++                }
++            }
+         }
+       if (formatContext != NULL)
+         {
+diff --git a/README.md b/README.md
+index e900951..415bae6 100644
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,134 @@
+ # libs-av
+-Implementation of the AVFoundation library based on avformat/ffmpeg libraries
++
++A GNUstep implementation of the AVFoundation library, based on FFmpeg (libavformat/libavcodec/libavutil) for media I/O and FluidSynth for MIDI playback.
++
++## Requirements
++
++- GNUstep (base, gui, and back libraries)
++- FFmpeg (libavformat, libavcodec, libavutil)
++- FluidSynth (optional, for MIDI playback)
++
++## Building
++
++```bash
++. /System/Library/Makefiles/GNUstep.sh
++make
++```
++
++## Supported Formats
++
++**Audio**: aac, aif, aiff, caf, m4a, mp3, wav
++**Video**: m4v, mov, mp4, mpeg, mpg
++
++## Reading Metadata
++
++The framework can read metadata (ID3 tags, etc.) from media files using `AVAsset`.
++
++### Example: Reading song metadata from an MP3 file
++
++```objc
++#import <AVFoundation/AVFoundation.h>
++
++AVURLAsset *asset = [AVURLAsset alloc] initWithURL: [NSURL fileURLWithPath: @"song.mp3"]
++                                           options: nil];
++
++for (AVMetadataItem *item in [asset commonMetadata])
++{
++    NSLog(@"Key: %@  (%@)  Value: %@",
++        [item key], [item keySpace], [item stringValue]);
++}
++
++// Access specific metadata:
++for (AVMetadataItem *item in [asset commonMetadata])
++{
++    if ([[item key] isEqualToString: AVMetadataCommonKeyTitle])
++    {
++        NSLog(@"Title: %@", [item stringValue]);
++    }
++    else if ([[item key] isEqualToString: AVMetadataCommonKeyArtist])
++    {
++        NSLog(@"Artist: %@", [item stringValue]);
++    }
++    else if ([[item key] isEqualToString: AVMetadataCommonKeyAlbumName])
++    {
++        NSLog(@"Album: %@", [item stringValue]);
++    }
++    else if ([[item key] isEqualToString: AVMetadataCommonKeyComposer])
++    {
++        NSLog(@"Composer: %@", [item stringValue]);
++    }
++    else if ([[item key] isEqualToString: AVMetadataCommonKeyGenre])
++    {
++        NSLog(@"Genre: %@", [item stringValue]);
++    }
++}
++```
++
++### Cover Art
++
++Cover art is returned as `NSData` via `AVMetadataCommonKeyArtwork`:
++
++```objc
++for (AVMetadataItem *item in [asset commonMetadata])
++{
++    if ([[item key] isEqualToString: AVMetadataCommonKeyArtwork])
++    {
++        NSData *imageData = [item value]; // NSData containing the image
++        // Save to file, display in an image view, etc.
++        [imageData writeToFile: @"cover.jpg" atomically: NO];
++    }
++}
++```
++
++### Metadata Key Spaces
++
++- **AVMetadataKeySpaceCommon** — Cross-format common metadata keys (title, artist, album, etc.)
++- **AVMetadataKeySpaceID3** — Raw ID3/FFmpeg metadata keys (used when no common key mapping exists)
++
++### Available Common Metadata Keys
++
++| Constant                     | FFmpeg key      | Description           |
++|------------------------------|-----------------|-----------------------|
++| `AVMetadataCommonKeyTitle`   | title           | Song / track title    |
++| `AVMetadataCommonKeyArtist`  | artist          | Artist name           |
++| `AVMetadataCommonKeyAlbumName` | album         | Album name            |
++| `AVMetadataCommonKeyComposer`  | composer      | Composer name         |
++| `AVMetadataCommonKeyGenre`   | genre           | Genre                 |
++| `AVMetadataCommonKeyTrackNumber` | track       | Track number          |
++| `AVMetadataCommonKeyCreationDate` | date       | Creation/recording date |
++| `AVMetadataCommonKeySoftware` | encoder        | Encoding software     |
++| `AVMetadataCommonKeyArtwork` | (attached pic)  | Cover art (NSData)    |
++
++## Classes
++
++### AVAsset / AVURLAsset
++
++The main class for inspecting media assets. Create with `[AVURLAsset initWithURL:options:]`.
++
++```objc
++- (CMTime) duration;
++- (BOOL) isPlayable;
++- (NSArray *) tracks;
++- (NSArray *) tracksWithMediaType: (NSString *)mediaType;
++- (NSArray *) commonMetadata;  // Array of AVMetadataItem
++```
++
++### AVMetadataItem
++
++Represents a single metadata key-value pair.
++
++```objc
++- (id) key;                    // The metadata key (NSString for common/ID3 keys)
++- (NSString *) keySpace;       // Namespace: AVMetadataKeySpaceCommon, AVMetadataKeySpaceID3, etc.
++- (id) value;                  // The value (NSString or NSData for artwork)
++- (NSString *) stringValue;    // Convenience accessor for string display
++- (NSNumber *) numberValue;    // Convenience accessor when value is numeric
++```
++
++### AVAssetTrack
++
++Represents a single media track (audio, video, or subtitle).
++
++### AVPlayer / AVAudioPlayer / AVMIDIPlayer
++
++Playback classes for audio, video, and MIDI files.

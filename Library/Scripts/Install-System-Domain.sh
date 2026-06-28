@@ -217,6 +217,10 @@ build_corelibs() {
   sh -e ./setup-integration.sh
   $MAKE_CMD clean
 
+  # Patch libs-av
+  echo "Patching libs-av..."
+  ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/libs-av" sh ./apply_libs-av-metadata_patch.sh ) # https://github.com/gnustep/libs-av/pull/1
+
   cd "$REPOS_DIR/libs-av"
   $MAKE_CMD -j"$CPUS" || exit 1
   $MAKE_CMD install
