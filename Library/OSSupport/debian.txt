@@ -55,3 +55,9 @@ rpcbind
 dbus-x11
 patchelf
 libarchive-dev
+libavcodec-dev
+libavformat-dev
+libavutil-dev
+libswresample-dev
+libswscale-dev
+libavfilter-dev
