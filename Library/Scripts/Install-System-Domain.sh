@@ -15,7 +15,8 @@ export REPOS_DIR="$WORKDIR/Library/Sources"
 # Detect NextBSD - libdispatch is provided by the base system
 if [ -d "/usr/lib/system" ]; then
   NEXTBSD=1
-  echo "NextBSD detected: using system libdispatch from /usr/lib/system"
+  echo "NextBSD detected: base ships a HAVE_MACH libdispatch in /usr/lib/system (daemons);"
+  echo "  the Gershwin domain builds its own non-Mach libdispatch into /System/Library/Libraries"
   # config.guess does not recognize NextBSD; tell configure we are FreeBSD
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -65,37 +66,55 @@ build_corelibs() {
   cd "$REPOS_DIR/gershwin-assets"
   cp -R Library/* /System/Library/
 
-  if [ "$NEXTBSD" -eq 0 ]; then
-    # Patch libdispatch
-    echo "Patching libdispatch..."
-    ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/swift-corelibs-libdispatch" sh ./apply_swift-corelibs-libdispatch_patch.sh )
+  # Patch libdispatch (FreeBSD timer-spin fix; harmless on other platforms).
+  echo "Patching libdispatch..."
+  ( cd "$WORKDIR/Library/Patches" && REPO_DIR="$REPOS_DIR/swift-corelibs-libdispatch" sh ./apply_swift-corelibs-libdispatch_patch.sh )
 
-    # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
-    echo "Building/installing libdispatch..."
-    if [ -d "$REPOS_DIR/swift-corelibs-libdispatch/Build" ] ; then
-      rm -rf "$REPOS_DIR/swift-corelibs-libdispatch/Build"
-    fi
-    mkdir -p "$REPOS_DIR/swift-corelibs-libdispatch/Build"
-
-    cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
-
-    cmake .. \
-      -DCMAKE_INSTALL_PREFIX=/System/Library \
-      -DCMAKE_INSTALL_LIBDIR=Libraries \
-      -DINSTALL_DISPATCH_HEADERS_DIR=/System/Library/Headers/dispatch \
-      -DINSTALL_BLOCK_HEADERS_DIR=/System/Library/Headers \
-      -DINSTALL_OS_HEADERS_DIR=/System/Library/Headers/os \
-      -DINSTALL_PRIVATE_HEADERS=ON \
-      -DCMAKE_INSTALL_MANDIR=Documentation/man \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++
-
-    "$MAKE_CMD" -j"$CPUS" || exit 1
-    "$MAKE_CMD" install || exit 1
-  else
-    echo "Skipping libdispatch build (provided by NextBSD base system)"
+  # Gershwin apps must link the portable, NON-Mach libdispatch. On stock
+  # FreeBSD/Linux this happens automatically (no <mach/mach.h> present, so the
+  # HAVE_MACH code is never compiled). NextBSD, however, ships libmach's
+  # <mach/mach.h> system-wide, so libdispatch's `#if __has_include(<mach/mach.h>)`
+  # guards auto-enable the Darwin Mach/QoS (direct-knote) event backend. That
+  # backend is wrong for FreeBSD's kqueue (0x0100 == EV_FORCEONESHOT; udata is not
+  # part of knote identity) and breaks GNUstep's fd-based dispatch sources — most
+  # visibly, the global menu's WindowMonitor never tracks the frontmost app.
+  # So on NextBSD we force those guards off to reproduce the stock non-Mach build
+  # and install it to /System/Library/Libraries, which Gershwin binaries' RUNPATH
+  # resolves ahead of /usr/lib/system. The NextBSD base's HAVE_MACH libdispatch in
+  # /usr/lib/system is left in place for the system daemons (launchd/XPC/notifyd).
+  DISPATCH_EXTRA_FLAGS=""
+  if [ "$NEXTBSD" -eq 1 ]; then
+    echo "NextBSD: forcing non-Mach libdispatch for the Gershwin domain"
+    ( cd "$REPOS_DIR/swift-corelibs-libdispatch" && \
+      grep -rl "__has_include(<mach/mach.h>)" . 2>/dev/null | grep -vE "/\.git/|/Build/" | \
+      xargs -r sed -i.nbsdbak "s#__has_include(<mach/mach.h>)#0#g" )
+    DISPATCH_EXTRA_FLAGS="-DHAVE_MACH=OFF"
   fi
+
+  # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
+  echo "Building/installing libdispatch..."
+  if [ -d "$REPOS_DIR/swift-corelibs-libdispatch/Build" ] ; then
+    rm -rf "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+  fi
+  mkdir -p "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+
+  cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
+
+  cmake .. \
+    -DCMAKE_INSTALL_PREFIX=/System/Library \
+    -DCMAKE_INSTALL_LIBDIR=Libraries \
+    -DINSTALL_DISPATCH_HEADERS_DIR=/System/Library/Headers/dispatch \
+    -DINSTALL_BLOCK_HEADERS_DIR=/System/Library/Headers \
+    -DINSTALL_OS_HEADERS_DIR=/System/Library/Headers/os \
+    -DINSTALL_PRIVATE_HEADERS=ON \
+    -DCMAKE_INSTALL_MANDIR=Documentation/man \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    $DISPATCH_EXTRA_FLAGS
+
+  "$MAKE_CMD" -j"$CPUS" || exit 1
+  "$MAKE_CMD" install || exit 1
 
   # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
   # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
@@ -109,7 +128,7 @@ build_corelibs() {
       --with-layout=gershwin \
       --with-library-combo=ng-gnu-gnu \
       --with-objc-lib-flag=" " \
-      LDFLAGS="-L/usr/lib/system" \
+      LDFLAGS="-L/System/Library/Libraries" \
       CPPFLAGS="-I/usr/include" \
       libobjc_LIBS=" "
   else
@@ -155,7 +174,7 @@ build_corelibs() {
       '-DCMAKE_OBJCXX_FLAGS=-DOBJC_PUBLIC=' \
       -DEMBEDDED_BLOCKS_RUNTIME=OFF \
       -DBlocksRuntime_INCLUDE_DIR=/usr/include \
-      -DBlocksRuntime_LIBRARIES=/usr/lib/system/libBlocksRuntime.so
+      -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
   else
     cmake .. \
       -DGNUSTEP_INSTALL_TYPE=SYSTEM \
@@ -177,7 +196,7 @@ build_corelibs() {
     ./configure \
       $BUILD_FLAG \
       --with-dispatch-include=/usr/include \
-      --with-dispatch-library=/usr/lib/system \
+      --with-dispatch-library=/System/Library/Libraries \
       --with-zeroconf-api=mdns
   else
     ./configure \
