@@ -22,6 +22,7 @@ libao
 dbus
 avahi
 wget
+curl
 cups
 freerdp
 libvncserver
