@@ -116,6 +116,23 @@ build_corelibs() {
   "$MAKE_CMD" -j"$CPUS" || exit 1
   "$MAKE_CMD" install || exit 1
 
+  if [ "$NEXTBSD" -eq 1 ]; then
+    # swift-corelibs-libdispatch's bundled BlocksRuntime is built with no
+    # soname, so libdispatch.so records a build-tree-RELATIVE DT_NEEDED
+    # (../libBlocksRuntime.so). A NEEDED containing '/' is resolved against the
+    # running process's current directory (RUNPATH is ignored for it), so any
+    # GNUstep tool executed from a build subdirectory — or an app launched from
+    # the wrong CWD — dies with:
+    #     ld-elf.so.1: Cannot open "../libBlocksRuntime.so"
+    # (this breaks the libs-gui build at the GSspell.service step). Normalize
+    # the NEEDED to the bare soname and set RUNPATH=$ORIGIN so it resolves next
+    # to libdispatch.so in /System/Library/Libraries, where the bundled
+    # libBlocksRuntime.so is installed. Requires patchelf (see nextbsd.txt).
+    patchelf --replace-needed ../libBlocksRuntime.so libBlocksRuntime.so \
+      /System/Library/Libraries/libdispatch.so
+    patchelf --set-rpath '$ORIGIN' /System/Library/Libraries/libdispatch.so
+  fi
+
   # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
   # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
   echo "Building/installing tools-make..."
@@ -193,11 +210,24 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libs-base"
   if [ "$NEXTBSD" -eq 1 ]; then
+    # NextBSD ships libdns_sd (the mDNSResponder DNS-SD client) in
+    # /usr/lib/system, which is on binaries' runtime RUNPATH but is NOT a
+    # default link-time search dir. Without -L/usr/lib/system, libs-base
+    # configure's AC_CHECK_LIB(dns_sd, DNSServiceBrowse) link test fails, so
+    # HAVE_MDNS is set to 0 and NSNetServiceBrowser/NSNetService are built with
+    # NO zeroconf backend: their +allocWithZone: then returns nil and the
+    # [[NSNetServiceBrowser alloc] init] in the Network view SIGSEGVs
+    # (Workspace, NetworkBrowser, RemoteDesktop). Adding the -L makes the mDNS
+    # backend detect+link. /System/Library/Libraries is listed FIRST so
+    # dispatch/objc/BlocksRuntime keep linking from the Gershwin (non-Mach)
+    # domain; /usr/lib/system is only for the base-only libdns_sd. Runtime
+    # dispatch resolution is unchanged (governed by RUNPATH, verified via ldd).
     ./configure \
       $BUILD_FLAG \
       --with-dispatch-include=/usr/include \
       --with-dispatch-library=/System/Library/Libraries \
-      --with-zeroconf-api=mdns
+      --with-zeroconf-api=mdns \
+      LDFLAGS="-L/System/Library/Libraries -L/usr/lib/system"
   else
     ./configure \
       --with-dispatch-include=/System/Library/Headers \
