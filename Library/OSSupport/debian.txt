@@ -63,3 +63,4 @@ libswresample-dev
 libswscale-dev
 libavfilter-dev
 libao-dev
+libsndfile1-dev
