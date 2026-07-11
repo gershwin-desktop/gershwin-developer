@@ -46,7 +46,7 @@ index 1add432..da126a6 100644
 +	  }
 +	if (hostname[0] != '\0')
 +	  {
-+	    NSLog(@"[XGServerWindow] Setting WM_CLIENT_MACHINE to: %s", hostname);
++	    // NSLog(@"[XGServerWindow] Setting WM_CLIENT_MACHINE to: %s", hostname);
 +	    XChangeProperty(dpy, window->ident,
 +			    XA_WM_CLIENT_MACHINE, XA_STRING,
 +			    8, PropModeReplace,
