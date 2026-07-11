@@ -89,23 +89,6 @@ build_corelibs() {
       grep -rl "__has_include(<mach/mach.h>)" . 2>/dev/null | grep -vE "/\.git/|/Build/" | \
       xargs -r sed -i.nbsdbak "s#__has_include(<mach/mach.h>)#0#g" )
     DISPATCH_EXTRA_FLAGS="-DHAVE_MACH=OFF"
-
-    # The bundled BlocksRuntime builds without a DT_SONAME, so libdispatch.so
-    # records a build-relative DT_NEEDED (../libBlocksRuntime.so). A NEEDED
-    # containing '/' resolves against the process CWD (RUNPATH is ignored for
-    # it), so a GNUstep tool run from a build subdir dies with
-    # `Cannot open "../libBlocksRuntime.so"` (the libs-gui GSspell.service step).
-    # Empirically real on NextBSD (verified on a target box). Force an explicit
-    # soname so the NEEDED is the bare 'libBlocksRuntime.so', and pin
-    # libdispatch.so's RUNPATH to $ORIGIN so that bare name resolves to Gershwin's
-    # OWN copy next to it in /System/Library/Libraries (never the base's). This is
-    # the former post-install `patchelf` fixup done at link time instead.
-    br_cmake="$REPOS_DIR/swift-corelibs-libdispatch/src/BlocksRuntime/CMakeLists.txt"
-    disp_cmake="$REPOS_DIR/swift-corelibs-libdispatch/src/CMakeLists.txt"
-    grep -q 'gershwin: BlocksRuntime soname' "$br_cmake" 2>/dev/null || \
-      printf '\n# gershwin: force a DT_SONAME so consumers record a bare NEEDED\ntarget_link_options(BlocksRuntime PRIVATE "LINKER:-soname,libBlocksRuntime.so")\n' >> "$br_cmake"
-    grep -q 'gershwin: dispatch install rpath' "$disp_cmake" 2>/dev/null || \
-      printf '\n# gershwin: resolve libBlocksRuntime.so next to libdispatch.so\nset_target_properties(dispatch PROPERTIES INSTALL_RPATH "$ORIGIN")\n' >> "$disp_cmake"
   fi
 
   # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
@@ -172,36 +155,14 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libobjc2/Build"
 
-  if [ "$NEXTBSD" -eq 1 ]; then
-    # Workaround: Clang silently skips #include "objc-visibility.h" in libobjc2
-    # headers when C++ standard library headers (e.g. <vector>, <functional>) are
-    # included first in ObjC++ translation units.  This leaves OBJC_PUBLIC
-    # undefined, breaking arc.mm and selector_table.cc.  Force-define it as empty
-    # (matching the non-Windows definition in objc-visibility.h).
-    # See: https://github.com/nickhutchinson/libcxx/issues/XXX (if filed upstream)
-    cmake .. \
-      $CMAKE_SYSTEM_FLAG \
-      -DGNUSTEP_INSTALL_TYPE=SYSTEM \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++ \
-      '-DCMAKE_C_FLAGS=-DOBJC_PUBLIC=' \
-      '-DCMAKE_CXX_FLAGS=-DOBJC_PUBLIC=' \
-      '-DCMAKE_OBJC_FLAGS=-DOBJC_PUBLIC=' \
-      '-DCMAKE_OBJCXX_FLAGS=-DOBJC_PUBLIC=' \
-      -DEMBEDDED_BLOCKS_RUNTIME=OFF \
-      -DBlocksRuntime_INCLUDE_DIR=/usr/include \
-      -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
-  else
-    cmake .. \
-      -DGNUSTEP_INSTALL_TYPE=SYSTEM \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++ \
-      -DEMBEDDED_BLOCKS_RUNTIME=OFF \
-      -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
-      -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
-  fi
+  cmake .. \
+    -DGNUSTEP_INSTALL_TYPE=SYSTEM \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DEMBEDDED_BLOCKS_RUNTIME=OFF \
+    -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
+    -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
 
   "$MAKE_CMD" -j"$CPUS" || exit 1
   "$MAKE_CMD" install || exit 1
