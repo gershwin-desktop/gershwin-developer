@@ -89,6 +89,23 @@ build_corelibs() {
       grep -rl "__has_include(<mach/mach.h>)" . 2>/dev/null | grep -vE "/\.git/|/Build/" | \
       xargs -r sed -i.nbsdbak "s#__has_include(<mach/mach.h>)#0#g" )
     DISPATCH_EXTRA_FLAGS="-DHAVE_MACH=OFF"
+
+    # The bundled BlocksRuntime builds without a DT_SONAME, so libdispatch.so
+    # records a build-relative DT_NEEDED (../libBlocksRuntime.so). A NEEDED
+    # containing '/' resolves against the process CWD (RUNPATH is ignored for
+    # it), so a GNUstep tool run from a build subdir dies with
+    # `Cannot open "../libBlocksRuntime.so"` (the libs-gui GSspell.service step).
+    # Empirically real on NextBSD (verified on a target box). Force an explicit
+    # soname so the NEEDED is the bare 'libBlocksRuntime.so', and pin
+    # libdispatch.so's RUNPATH to $ORIGIN so that bare name resolves to Gershwin's
+    # OWN copy next to it in /System/Library/Libraries (never the base's). This is
+    # the former post-install `patchelf` fixup done at link time instead.
+    br_cmake="$REPOS_DIR/swift-corelibs-libdispatch/src/BlocksRuntime/CMakeLists.txt"
+    disp_cmake="$REPOS_DIR/swift-corelibs-libdispatch/src/CMakeLists.txt"
+    grep -q 'gershwin: BlocksRuntime soname' "$br_cmake" 2>/dev/null || \
+      printf '\n# gershwin: force a DT_SONAME so consumers record a bare NEEDED\ntarget_link_options(BlocksRuntime PRIVATE "LINKER:-soname,libBlocksRuntime.so")\n' >> "$br_cmake"
+    grep -q 'gershwin: dispatch install rpath' "$disp_cmake" 2>/dev/null || \
+      printf '\n# gershwin: resolve libBlocksRuntime.so next to libdispatch.so\nset_target_properties(dispatch PROPERTIES INSTALL_RPATH "$ORIGIN")\n' >> "$disp_cmake"
   fi
 
   # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
