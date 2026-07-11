@@ -6,7 +6,7 @@ if [ "$FROM_MAKEFILE" != "1" ]; then
     exit 1
 fi
 
-export PATH="${PATH}:/Developer/Library/Scripts"
+export PATH="${PATH}:$(cd "$(dirname "$0")" && pwd -P)"
 . ./Library/Scripts/Functions.sh
 detect_platform
 export_vars

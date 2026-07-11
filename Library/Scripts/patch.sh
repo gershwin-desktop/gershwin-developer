@@ -31,13 +31,16 @@ _apply_one() {
     for f in "$patch_dir"/*.patch; do
         [ -f "$f" ] || continue
 
-        if patch -p1 -R --dry-run -t -i "$f" >/dev/null 2>&1; then
-            already=$((already + 1))
-        elif patch -p1 -N -t -i "$f" >/dev/null 2>&1; then
+        if patch -p1 -N -t -i "$f" >/dev/null 2>&1; then
             applied=$((applied + 1))
+        elif patch -p1 -R -f --dry-run -t -i "$f" >/dev/null 2>&1; then
+            already=$((already + 1))
         else
             failed=$((failed + 1))
         fi
+
+        find "$repo_dir" -name '*.rej' -delete 2>/dev/null
+        find "$repo_dir" -name '*.orig' -delete 2>/dev/null
     done
 
     if [ "$failed" -gt 0 ]; then
