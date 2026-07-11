@@ -100,7 +100,14 @@ build_corelibs() {
 
   cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
 
+  # $CMAKE_SYSTEM_FLAG (-DCMAKE_SYSTEM_NAME=FreeBSD on NextBSD, empty elsewhere):
+  # without it CMake can't match NextBSD's uname to a platform module, so it never
+  # sets CMAKE_SHARED_LIBRARY_SONAME_C_FLAG and emits libBlocksRuntime.so with no
+  # SONAME — which makes libdispatch record a build-relative NEEDED
+  # (../libBlocksRuntime.so) that fails to load. Telling CMake it's FreeBSD lets it
+  # set the soname itself, exactly like the base and libobjc2 builds do.
   cmake .. \
+    $CMAKE_SYSTEM_FLAG \
     -DCMAKE_INSTALL_PREFIX=/System/Library \
     -DCMAKE_INSTALL_LIBDIR=Libraries \
     -DINSTALL_DISPATCH_HEADERS_DIR=/System/Library/Headers/dispatch \
@@ -116,48 +123,22 @@ build_corelibs() {
   "$MAKE_CMD" -j"$CPUS" || exit 1
   "$MAKE_CMD" install || exit 1
 
-  if [ "$NEXTBSD" -eq 1 ]; then
-    # swift-corelibs-libdispatch's bundled BlocksRuntime is built with no
-    # soname, so libdispatch.so records a build-tree-RELATIVE DT_NEEDED
-    # (../libBlocksRuntime.so). A NEEDED containing '/' is resolved against the
-    # running process's current directory (RUNPATH is ignored for it), so any
-    # GNUstep tool executed from a build subdirectory — or an app launched from
-    # the wrong CWD — dies with:
-    #     ld-elf.so.1: Cannot open "../libBlocksRuntime.so"
-    # (this breaks the libs-gui build at the GSspell.service step). Normalize
-    # the NEEDED to the bare soname and set RUNPATH=$ORIGIN so it resolves next
-    # to libdispatch.so in /System/Library/Libraries, where the bundled
-    # libBlocksRuntime.so is installed. Requires patchelf (see nextbsd.txt).
-    patchelf --replace-needed ../libBlocksRuntime.so libBlocksRuntime.so \
-      /System/Library/Libraries/libdispatch.so
-    patchelf --set-rpath '$ORIGIN' /System/Library/Libraries/libdispatch.so
-  fi
-
   # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
   # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
   echo "Building/installing tools-make..."
   cd "$REPOS_DIR/tools-make"
   $MAKE_CMD distclean 2>/dev/null || true
-  if [ "$NEXTBSD" -eq 1 ]; then
-    ./configure \
-      $BUILD_FLAG \
-      --with-config-file=/System/Library/Preferences/GNUstep.conf \
-      --with-layout=gershwin \
-      --with-library-combo=ng-gnu-gnu \
-      --with-objc-lib-flag=" " \
-      LDFLAGS="-L/System/Library/Libraries" \
-      CPPFLAGS="-I/usr/include" \
-      libobjc_LIBS=" "
-  else
-    ./configure \
-      --with-config-file=/System/Library/Preferences/GNUstep.conf \
-      --with-layout=gershwin \
-      --with-library-combo=ng-gnu-gnu \
-      --with-objc-lib-flag=" " \
-      LDFLAGS="-L/System/Library/Libraries" \
-      CPPFLAGS="-I/System/Library/Headers" \
-      libobjc_LIBS=" "
-  fi
+  # $BUILD_FLAG is --build=<arch>-nextbsd-freebsd on NextBSD (config.guess can't
+  # recognize NextBSD's uname), empty elsewhere — harmless on FreeBSD/Linux.
+  ./configure \
+    $BUILD_FLAG \
+    --with-config-file=/System/Library/Preferences/GNUstep.conf \
+    --with-layout=gershwin \
+    --with-library-combo=ng-gnu-gnu \
+    --with-objc-lib-flag=" " \
+    LDFLAGS="-L/System/Library/Libraries" \
+    CPPFLAGS="-I/System/Library/Headers" \
+    libobjc_LIBS=" "
   $MAKE_CMD || exit 1
   $MAKE_CMD install
 
@@ -172,36 +153,14 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libobjc2/Build"
 
-  if [ "$NEXTBSD" -eq 1 ]; then
-    # Workaround: Clang silently skips #include "objc-visibility.h" in libobjc2
-    # headers when C++ standard library headers (e.g. <vector>, <functional>) are
-    # included first in ObjC++ translation units.  This leaves OBJC_PUBLIC
-    # undefined, breaking arc.mm and selector_table.cc.  Force-define it as empty
-    # (matching the non-Windows definition in objc-visibility.h).
-    # See: https://github.com/nickhutchinson/libcxx/issues/XXX (if filed upstream)
-    cmake .. \
-      $CMAKE_SYSTEM_FLAG \
-      -DGNUSTEP_INSTALL_TYPE=SYSTEM \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++ \
-      '-DCMAKE_C_FLAGS=-DOBJC_PUBLIC=' \
-      '-DCMAKE_CXX_FLAGS=-DOBJC_PUBLIC=' \
-      '-DCMAKE_OBJC_FLAGS=-DOBJC_PUBLIC=' \
-      '-DCMAKE_OBJCXX_FLAGS=-DOBJC_PUBLIC=' \
-      -DEMBEDDED_BLOCKS_RUNTIME=OFF \
-      -DBlocksRuntime_INCLUDE_DIR=/usr/include \
-      -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
-  else
-    cmake .. \
-      -DGNUSTEP_INSTALL_TYPE=SYSTEM \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++ \
-      -DEMBEDDED_BLOCKS_RUNTIME=OFF \
-      -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
-      -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
-  fi
+  cmake .. \
+    -DGNUSTEP_INSTALL_TYPE=SYSTEM \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DEMBEDDED_BLOCKS_RUNTIME=OFF \
+    -DBlocksRuntime_INCLUDE_DIR=/System/Library/Headers \
+    -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
 
   "$MAKE_CMD" -j"$CPUS" || exit 1
   "$MAKE_CMD" install || exit 1
