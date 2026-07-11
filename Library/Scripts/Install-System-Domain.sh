@@ -121,26 +121,14 @@ build_corelibs() {
   echo "Building/installing tools-make..."
   cd "$REPOS_DIR/tools-make"
   $MAKE_CMD distclean 2>/dev/null || true
-  if [ "$NEXTBSD" -eq 1 ]; then
-    ./configure \
-      $BUILD_FLAG \
-      --with-config-file=/System/Library/Preferences/GNUstep.conf \
-      --with-layout=gershwin \
-      --with-library-combo=ng-gnu-gnu \
-      --with-objc-lib-flag=" " \
-      LDFLAGS="-L/System/Library/Libraries" \
-      CPPFLAGS="-I/usr/include" \
-      libobjc_LIBS=" "
-  else
-    ./configure \
-      --with-config-file=/System/Library/Preferences/GNUstep.conf \
-      --with-layout=gershwin \
-      --with-library-combo=ng-gnu-gnu \
-      --with-objc-lib-flag=" " \
-      LDFLAGS="-L/System/Library/Libraries" \
-      CPPFLAGS="-I/System/Library/Headers" \
-      libobjc_LIBS=" "
-  fi
+  ./configure \
+    --with-config-file=/System/Library/Preferences/GNUstep.conf \
+    --with-layout=gershwin \
+    --with-library-combo=ng-gnu-gnu \
+    --with-objc-lib-flag=" " \
+    LDFLAGS="-L/System/Library/Libraries" \
+    CPPFLAGS="-I/System/Library/Headers" \
+    libobjc_LIBS=" "
   $MAKE_CMD || exit 1
   $MAKE_CMD install
 
