@@ -100,7 +100,14 @@ build_corelibs() {
 
   cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
 
+  # $CMAKE_SYSTEM_FLAG (-DCMAKE_SYSTEM_NAME=FreeBSD on NextBSD, empty elsewhere):
+  # without it CMake can't match NextBSD's uname to a platform module, so it never
+  # sets CMAKE_SHARED_LIBRARY_SONAME_C_FLAG and emits libBlocksRuntime.so with no
+  # SONAME — which makes libdispatch record a build-relative NEEDED
+  # (../libBlocksRuntime.so) that fails to load. Telling CMake it's FreeBSD lets it
+  # set the soname itself, exactly like the base and libobjc2 builds do.
   cmake .. \
+    $CMAKE_SYSTEM_FLAG \
     -DCMAKE_INSTALL_PREFIX=/System/Library \
     -DCMAKE_INSTALL_LIBDIR=Libraries \
     -DINSTALL_DISPATCH_HEADERS_DIR=/System/Library/Headers/dispatch \
