@@ -116,23 +116,6 @@ build_corelibs() {
   "$MAKE_CMD" -j"$CPUS" || exit 1
   "$MAKE_CMD" install || exit 1
 
-  if [ "$NEXTBSD" -eq 1 ]; then
-    # swift-corelibs-libdispatch's bundled BlocksRuntime is built with no
-    # soname, so libdispatch.so records a build-tree-RELATIVE DT_NEEDED
-    # (../libBlocksRuntime.so). A NEEDED containing '/' is resolved against the
-    # running process's current directory (RUNPATH is ignored for it), so any
-    # GNUstep tool executed from a build subdirectory — or an app launched from
-    # the wrong CWD — dies with:
-    #     ld-elf.so.1: Cannot open "../libBlocksRuntime.so"
-    # (this breaks the libs-gui build at the GSspell.service step). Normalize
-    # the NEEDED to the bare soname and set RUNPATH=$ORIGIN so it resolves next
-    # to libdispatch.so in /System/Library/Libraries, where the bundled
-    # libBlocksRuntime.so is installed. Requires patchelf (see nextbsd.txt).
-    patchelf --replace-needed ../libBlocksRuntime.so libBlocksRuntime.so \
-      /System/Library/Libraries/libdispatch.so
-    patchelf --set-rpath '$ORIGIN' /System/Library/Libraries/libdispatch.so
-  fi
-
   # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
   # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
   echo "Building/installing tools-make..."

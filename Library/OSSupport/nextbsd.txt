@@ -38,4 +38,3 @@ automake
 libtool
 libvncserver
 freerdp
-patchelf
