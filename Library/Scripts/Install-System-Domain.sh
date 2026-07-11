@@ -121,7 +121,10 @@ build_corelibs() {
   echo "Building/installing tools-make..."
   cd "$REPOS_DIR/tools-make"
   $MAKE_CMD distclean 2>/dev/null || true
+  # $BUILD_FLAG is --build=<arch>-nextbsd-freebsd on NextBSD (config.guess can't
+  # recognize NextBSD's uname), empty elsewhere — harmless on FreeBSD/Linux.
   ./configure \
+    $BUILD_FLAG \
     --with-config-file=/System/Library/Preferences/GNUstep.conf \
     --with-layout=gershwin \
     --with-library-combo=ng-gnu-gnu \
