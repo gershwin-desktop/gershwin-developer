@@ -24,6 +24,7 @@ https://github.com/gnustep/libs-base.git
 https://github.com/gnustep/libs-gui.git
 https://github.com/gnustep/libs-back.git
 https://github.com/gnustep/libs-av.git
+https://github.com/gnustep/libs-steptalk.git
 https://github.com/gershwin-desktop/gershwin-system.git
 https://github.com/gershwin-desktop/gershwin-workspace.git
 https://github.com/gershwin-desktop/gershwin-systempreferences.git
@@ -82,6 +83,8 @@ if [ "$PINNED" -eq 1 ]; then
     checkout_commit libs-gui                     8be638c
     checkout_commit swift-corelibs-libdispatch   4876f91
     checkout_commit tools-make                   50cf961
+    checkout_commit libs-steptalk                2b57b46
+
 fi
 
 # The following do not seeem to be causing showstoppers currently
