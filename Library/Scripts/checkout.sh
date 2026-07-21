@@ -3,6 +3,12 @@ set -e
 
 # Enable pinned commits with:
 #   PINNED=1 ./Library/Scripts/checkout.sh
+#
+# Build against a feature branch where it exists (e.g. a "dev" channel) with:
+#   BRANCH=dev ./Library/Scripts/checkout.sh
+# For each repo that HAS the branch on its remote it is cloned/checked out;
+# repos without it fall back to their default branch. Unset (the default)
+# leaves behaviour identical to before.
 
 PINNED="${PINNED:-0}"
 
@@ -12,6 +18,12 @@ PINNED="${PINNED:-0}"
 # the repo under test.
 SKIP_REPOS="${SKIP_REPOS:-}"
 SKIP_REPOS=$(printf '%s' "$SKIP_REPOS" | tr ',' ' ')
+
+# Optional branch to prefer for every repo that has it (e.g. BRANCH=dev). A repo
+# without the branch silently falls back to its default branch, so a partial
+# rollout works. Independent of PINNED: the pinned upstream libs don't carry
+# such a branch, so their pins are unaffected.
+BRANCH="${BRANCH:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPOS_DIR="$SCRIPT_DIR/../Sources"
@@ -54,13 +66,24 @@ for REPO in $REPOS; do
         (
             cd "$NAME"
             git fetch --all --tags
+            # Switch to $BRANCH if this repo has it; otherwise stay put.
+            if [ -n "$BRANCH" ] && git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+                echo "  $NAME: switching to branch '$BRANCH'"
+                git checkout "$BRANCH"
+            fi
             if [ "$PINNED" -eq 0 ]; then
                 git pull --ff-only
             fi
         )
     else
         echo "Cloning $NAME..."
-        git clone "$REPO"
+        # Clone $BRANCH if this repo has it; otherwise the default branch.
+        BR=""
+        if [ -n "$BRANCH" ] && git ls-remote --exit-code --heads "$REPO" "$BRANCH" >/dev/null 2>&1; then
+            BR="$BRANCH"
+            echo "  $NAME: using branch '$BRANCH'"
+        fi
+        git clone ${BR:+--branch "$BR"} "$REPO"
     fi
 done
 
