@@ -771,10 +771,16 @@ static void WriteAll(int fd, const char *bytes)
                        * client wait for EOF past its read timeout.  The action
                        * then runs on the main thread as usual; other commands
                        * are still serviced because serviceConnection: is posted
-                       * in the modal run loop mode too.  The @finally below
-                       * re-closes the (already closed) fd, which is harmless. */
+                       * in the modal run loop mode too.  Mark the fd closed so
+                       * the @finally below does not close it again: while the
+                       * action runs, another thread can get the same number
+                       * from open(), socket() or XOpenDisplay(), and closing
+                       * it a second time would cut that connection (this is
+                       * how the Workspace lost its X connections in the UI
+                       * tests). */
                       WriteAll(fd, "ok\n");
                       close(fd);
+                      fd = -1;
                       @try
                         {
                           [menu performActionForItemAtIndex: idx];
@@ -909,7 +915,10 @@ static void WriteAll(int fd, const char *bytes)
         }
       @finally
         {
-          close(fd);
+          if (fd >= 0)
+            {
+              close(fd);
+            }
         }
     }
 
