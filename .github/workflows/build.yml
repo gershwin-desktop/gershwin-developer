@@ -37,7 +37,7 @@ jobs:
             # is published as a check run by the Publish UI test results step,
             # which fails the job on test failures.
             set +e
-            UITEST_COLLECT_CORES=1 sh Library/Scripts/run-uitests-debug.sh
+            UITEST_CRASH_DIAGNOSTICS=1 sh Library/Scripts/run-uitests-debug.sh
             UITEST_RC=$?
             set -e
             mkdir -p artifacts/FreeBSD/14/amd64
@@ -88,7 +88,7 @@ jobs:
       image: archlinux:latest
       options: --privileged --ulimit core=-1
     env:
-      UITEST_COLLECT_CORES: "1"
+      UITEST_CRASH_DIAGNOSTICS: "1"
     steps:
       - name: Install build prerequisites
         run: |
@@ -174,7 +174,7 @@ jobs:
       image: debian:bookworm
       options: --privileged --ulimit core=-1
     env:
-      UITEST_COLLECT_CORES: "1"
+      UITEST_CRASH_DIAGNOSTICS: "1"
     steps:
       - name: Install build prerequisites
         run: |

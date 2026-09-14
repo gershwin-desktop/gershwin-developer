@@ -188,7 +188,7 @@ session_run()
 }
 
 # ---------------------------------------------------------------------------
-# Crash diagnostics (UITEST_COLLECT_CORES=1, set by CI)
+# Crash diagnostics (UITEST_CRASH_DIAGNOSTICS=1, set by CI)
 # ---------------------------------------------------------------------------
 
 # A desktop component or run_uitest that crashes mid-suite otherwise shows up
@@ -209,7 +209,7 @@ as_root()
 setup_core_dumps()
 {
   command -v gdb >/dev/null 2>&1 || {
-    echo "error: UITEST_COLLECT_CORES=1 needs gdb to backtrace cores" >&2
+    echo "error: UITEST_CRASH_DIAGNOSTICS=1 needs gdb to backtrace cores" >&2
     exit 1
   }
   as_root rm -rf "$CORE_DIR"
@@ -228,10 +228,32 @@ setup_core_dumps()
       as_root sysctl kern.corefile="$CORE_DIR/%N.%P.core" >/dev/null || exit 1
       ;;
     *)
-      echo "error: UITEST_COLLECT_CORES is not supported on $(uname -s)" >&2
+      echo "error: UITEST_CRASH_DIAGNOSTICS is not supported on $(uname -s)" >&2
       exit 1
       ;;
   esac
+}
+
+# Workspace also dies without a core when one of its X connections has its
+# descriptor closed by other code in the process (Xlib then just reports
+# "X connection broken").  xfdwatch.c, preloaded into Workspace only, prints
+# the backtrace of whoever closes an X server socket outside libxcb.
+WS_PRELOAD=""
+
+setup_xfd_watch()
+{
+  _lib=/tmp/uitest-xfdwatch.so
+  # backtrace() lives in libexecinfo on the BSDs and in libc on Linux.
+  case "$(uname -s)" in
+    Linux) _libs="-ldl" ;;
+    *)     _libs="-lexecinfo" ;;
+  esac
+  cc -shared -fPIC -O1 -Wall -o "$_lib" "$WORKDIR/Library/Scripts/xfdwatch.c" $_libs || {
+    echo "error: cannot build $_lib" >&2
+    exit 1
+  }
+  chmod 755 "$_lib"
+  WS_PRELOAD="$_lib"
 }
 
 # Backtrace every core the suite left behind; crash-backtraces.txt next to the
@@ -271,6 +293,11 @@ print_session_logs()
     echo "=== UITEST LOG: $_log (last 40 lines) ==="
     tail -n 40 "$_log"
   done
+  # The culprit report can be far above the tail printed above.
+  if grep -q '^XFDWATCH' /tmp/uitest_ws.log 2>/dev/null; then
+    echo "=== UITEST XFDWATCH: X connections closed outside libxcb ==="
+    grep -A 40 '^XFDWATCH' /tmp/uitest_ws.log | head -400
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -302,8 +329,9 @@ if [ "$UITEST_SESSION" = "isolated" ]; then
   rm -rf "/tmp/GNUstepSecure${_isolated_uid}" 2>/dev/null || true
   sleep 1
 
-  if [ "${UITEST_COLLECT_CORES:-0}" = "1" ]; then
+  if [ "${UITEST_CRASH_DIAGNOSTICS:-0}" = "1" ]; then
     setup_core_dumps
+    setup_xfd_watch
   fi
 
   # A fresh virtual display, open to local connections.
@@ -327,12 +355,12 @@ if [ "$UITEST_SESSION" = "isolated" ]; then
     "(\"/System/Library/Bundles/DriveUI.bundle\")" >/dev/null 2>&1'
 
   # Desktop + dbus session for the test user.
-  session_run sh -c '
+  session_run env WS_PRELOAD="$WS_PRELOAD" sh -c '
     . /System/Library/Makefiles/GNUstep.sh
     eval $(dbus-launch --sh-syntax)
     /System/Library/CoreServices/Applications/Menu.app/Menu >/tmp/uitest_menu.log 2>&1 &
     /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >/tmp/uitest_wm.log 2>&1 &
-    /System/Applications/Workspace.app/Workspace >/tmp/uitest_ws.log 2>&1 &
+    ${WS_PRELOAD:+env LD_PRELOAD=$WS_PRELOAD} /System/Applications/Workspace.app/Workspace >/tmp/uitest_ws.log 2>&1 &
   '
 
 else
@@ -449,7 +477,7 @@ if [ -f "$HARNESS_JUNIT" ]; then
   echo "JUnit report: $JUNIT_OUTPUT" >&2
 fi
 
-if [ "${UITEST_COLLECT_CORES:-0}" = "1" ]; then
+if [ "${UITEST_CRASH_DIAGNOSTICS:-0}" = "1" ]; then
   report_cores
 fi
 if [ "$rc" -ne 0 ]; then
