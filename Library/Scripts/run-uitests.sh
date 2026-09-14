@@ -265,12 +265,32 @@ sleep 5
 # ---------------------------------------------------------------------------
 # Collect the Tests/ directories that belong to the built components.
 # ---------------------------------------------------------------------------
+
+# A component directory carrying a .DISABLED file is not built (see the
+# gershwin-components top-level GNUmakefile), so its app is absent and its
+# tests could only fail on "no <App>.app found".  $1 = test dir, $2 = repo.
+in_disabled_component()
+{
+  _d="$1"
+  while [ "$_d" != "$2" ] && [ "$_d" != "/" ]; do
+    [ -f "$_d/.DISABLED" ] && return 0
+    _d=$(dirname "$_d")
+  done
+  return 1
+}
+
 RAW_DIRS=$(for repo in "$REPOS_DIR"/gershwin-*
   do
     if [ -d "$repo" ]; then
       files=$(find "$repo" -name '*.uitest' -type f 2>/dev/null)
       if [ -n "$files" ]; then
-        echo "$files" | xargs -n1 dirname
+        echo "$files" | xargs -n1 dirname | while read -r d; do
+          if in_disabled_component "$d" "$repo"; then
+            echo "Skipping $d: component is .DISABLED (not built)" >&2
+          else
+            echo "$d"
+          fi
+        done
       fi
     fi
   done | sort -u)
