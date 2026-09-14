@@ -1,0 +1,31 @@
+--- a/Source/NSMessagePort.m
++++ b/Source/NSMessagePort.m
+@@ -1326,6 +1326,28 @@
+ 	    }
+ 	  else
+ 	    {
++	      int	e;
++
++	      /*
++	       * The run loop can report the listener as readable after the
++	       * pending connection was already accepted (e.g. by a nested run
++	       * loop in another mode), so accept() must never block or the
++	       * thread hangs forever inside -receivedEvent:type:extra:forMode:.
++	       */
++	      if ((e = fcntl(desc, F_GETFL, 0)) >= 0)
++		{
++		  e |= NBLK_OPT;
++		  if (fcntl(desc, F_SETFL, e) < 0)
++		    {
++		      NSLog(@"unable to set non-blocking mode on %d - %@",
++			desc, [NSError _last]);
++		    }
++		}
++	      else
++		{
++		  NSLog(@"unable to get/set non-blocking mode on %d - %@",
++		    desc, [NSError _last]);
++		}
+ 	      /*
+ 	       * Set up the listening descriptor and the actual message port
+ 	       * number (which will have been set to a real port number when
