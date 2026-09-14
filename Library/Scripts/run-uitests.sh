@@ -449,12 +449,6 @@ if [ -f "$HARNESS_JUNIT" ]; then
   echo "JUnit report: $JUNIT_OUTPUT" >&2
 fi
 
-# Diagnostic: bring back the launched-app launch log (Processes writes
-# /tmp/processes_launch.log) next to the junit report so CI artifacts carry it.
-if [ -f /tmp/processes_launch.log ]; then
-  cp /tmp/processes_launch.log "$(dirname "$JUNIT_OUTPUT")/processes_launch.log" 2>/dev/null || true
-fi
-
 if [ "${UITEST_COLLECT_CORES:-0}" = "1" ]; then
   report_cores
 fi
