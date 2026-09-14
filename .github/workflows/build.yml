@@ -25,7 +25,7 @@ jobs:
           mem: 4096
           prepare: |
             pkg update
-            pkg install -y git tree squashfs-tools xorg-vfbserver xdpyinfo fontconfig ffmpeg xterm lcms2 sqlite
+            pkg install -y git tree squashfs-tools xorg-vfbserver xdpyinfo fontconfig ffmpeg xterm lcms2 sqlite gdb
           run: |
             set -e
             ./Library/Scripts/bootstrap.sh
@@ -37,7 +37,7 @@ jobs:
             # is published as a check run by the Publish UI test results step,
             # which fails the job on test failures.
             set +e
-            sh Library/Scripts/run-uitests-debug.sh
+            UITEST_COLLECT_CORES=1 sh Library/Scripts/run-uitests-debug.sh
             UITEST_RC=$?
             set -e
             mkdir -p artifacts/FreeBSD/14/amd64
@@ -81,8 +81,14 @@ jobs:
     name: Arch x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    # Privileged so run-uitests.sh can point kernel.core_pattern at a file:
+    # the runner host pipes cores to apport, which the container never sees,
+    # so a crashing desktop component or run_uitest would leave no core.
     container:
       image: archlinux:latest
+      options: --privileged --ulimit core=-1
+    env:
+      UITEST_COLLECT_CORES: "1"
     steps:
       - name: Install build prerequisites
         run: |
@@ -90,7 +96,7 @@ jobs:
           # package versions, which previously broke the whole job (git ended
           # up missing, so the test-reporter below could not run).
           for attempt in 1 2 3 4 5; do
-            pacman -Syu --noconfirm && pacman -S --noconfirm base-devel git tree squashfs-tools xorg-server-xvfb xorg-xdpyinfo procps-ng ffmpeg xterm lcms2 sqlite && break
+            pacman -Syu --noconfirm && pacman -S --noconfirm base-devel git tree squashfs-tools xorg-server-xvfb xorg-xdpyinfo procps-ng ffmpeg xterm lcms2 sqlite gdb && break
             echo "pacman attempt $attempt failed, retrying in 15s"
             sleep 15
           done
@@ -163,13 +169,17 @@ jobs:
     name: Debian x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    # Privileged for the same core_pattern reason as the Arch job.
     container:
       image: debian:bookworm
+      options: --privileged --ulimit core=-1
+    env:
+      UITEST_COLLECT_CORES: "1"
     steps:
       - name: Install build prerequisites
         run: |
           apt-get update
-          apt-get -y install git tree squashfs-tools xvfb x11-utils procps ffmpeg xterm liblcms2-dev libsqlite3-dev
+          apt-get -y install git tree squashfs-tools xvfb x11-utils procps ffmpeg xterm liblcms2-dev libsqlite3-dev gdb
 
       - uses: actions/checkout@v5
 

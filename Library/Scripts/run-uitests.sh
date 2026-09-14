@@ -188,6 +188,92 @@ session_run()
 }
 
 # ---------------------------------------------------------------------------
+# Crash diagnostics (UITEST_COLLECT_CORES=1, set by CI)
+# ---------------------------------------------------------------------------
+
+# A desktop component or run_uitest that crashes mid-suite otherwise shows up
+# only as "exit 11" or "application not running" on every later test; its
+# core gives the stack.  Opt-in because it changes a system-wide kernel
+# setting, which a developer's machine must not get as a side effect.
+CORE_DIR=/tmp/uitest-cores
+
+as_root()
+{
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+setup_core_dumps()
+{
+  command -v gdb >/dev/null 2>&1 || {
+    echo "error: UITEST_COLLECT_CORES=1 needs gdb to backtrace cores" >&2
+    exit 1
+  }
+  as_root rm -rf "$CORE_DIR"
+  as_root mkdir -m 1777 "$CORE_DIR" || exit 1
+  case "$(uname -s)" in
+    Linux)
+      # %E is the executable's path with '/' written as '!', so the report
+      # can hand gdb the matching binary.  Writing it needs a privileged
+      # container (see build.yml).
+      as_root sh -c "echo '$CORE_DIR/core.%E.%p' > /proc/sys/kernel/core_pattern" || {
+        echo "error: cannot set kernel.core_pattern (container not privileged?)" >&2
+        exit 1
+      }
+      ;;
+    FreeBSD|NextBSD)
+      as_root sysctl kern.corefile="$CORE_DIR/%N.%P.core" >/dev/null || exit 1
+      ;;
+    *)
+      echo "error: UITEST_COLLECT_CORES is not supported on $(uname -s)" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# Backtrace every core the suite left behind; crash-backtraces.txt next to the
+# JUnit report puts them into the CI artifact as well.
+report_cores()
+{
+  _bt="$(dirname "$JUNIT_OUTPUT")/crash-backtraces.txt"
+  mkdir -p "$(dirname "$_bt")"
+  for _core in "$CORE_DIR"/*; do
+    [ -f "$_core" ] || continue
+    _base=$(basename "$_core")
+    case "$_base" in
+      core.*)
+        _exe=$(echo "$_base" | sed -e 's/^core\.//' -e 's/\.[0-9]*$//' | tr '!' '/')
+        ;;
+      *.core)
+        # FreeBSD's %N is only the process name: find the binary in /System.
+        _name=$(echo "$_base" | sed -e 's/\.[0-9]*\.core$//')
+        _exe=$(find /System/Applications /System/Library/CoreServices \
+          /System/Library/Tools -type f -name "$_name" -perm -111 2>/dev/null | head -1)
+        ;;
+    esac
+    {
+      echo "=== UITEST CRASH: $_base (${_exe:-executable not found}) ==="
+      as_root gdb -q -batch -ex 'thread apply all bt 40' ${_exe:+"$_exe"} \
+        --core="$_core" 2>&1 | head -300
+    } | tee -a "$_bt"
+  done
+}
+
+# A component that wedged or crashed usually explains every test failing
+# after it, and its own output is the only record of why.
+print_session_logs()
+{
+  for _log in /tmp/uitest_ws.log /tmp/uitest_workspace.log /tmp/uitest_menu.log /tmp/uitest_wm.log; do
+    [ -f "$_log" ] || continue
+    echo "=== UITEST LOG: $_log (last 40 lines) ==="
+    tail -n 40 "$_log"
+  done
+}
+
+# ---------------------------------------------------------------------------
 # Session setup
 # ---------------------------------------------------------------------------
 
@@ -215,6 +301,10 @@ if [ "$UITEST_SESSION" = "isolated" ]; then
   _isolated_uid=$(id -u "$UITEST_ISOLATED_USER" 2>/dev/null || echo 0)
   rm -rf "/tmp/GNUstepSecure${_isolated_uid}" 2>/dev/null || true
   sleep 1
+
+  if [ "${UITEST_COLLECT_CORES:-0}" = "1" ]; then
+    setup_core_dumps
+  fi
 
   # A fresh virtual display, open to local connections.
   if ! xdpyinfo -display "$UITEST_ISOLATED_DISPLAY" >/dev/null 2>&1; then
@@ -363,6 +453,13 @@ fi
 # /tmp/processes_launch.log) next to the junit report so CI artifacts carry it.
 if [ -f /tmp/processes_launch.log ]; then
   cp /tmp/processes_launch.log "$(dirname "$JUNIT_OUTPUT")/processes_launch.log" 2>/dev/null || true
+fi
+
+if [ "${UITEST_COLLECT_CORES:-0}" = "1" ]; then
+  report_cores
+fi
+if [ "$rc" -ne 0 ]; then
+  print_session_logs
 fi
 
 restore_appkit_bundles
