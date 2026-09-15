@@ -170,7 +170,9 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libs-base"
 
-  # Patch libs-base (64-bit _4CF main-queue handle fix for Apple libdispatch).
+  # Patch libs-base (64-bit _4CF main-queue handle fix for Apple libdispatch;
+  # run loop performers queued behind one that runs a nested run loop, such
+  # as a modal panel, still fire, so windows keep redrawing).
   echo "Patching libs-base..."
   patch.sh libs-base
 
