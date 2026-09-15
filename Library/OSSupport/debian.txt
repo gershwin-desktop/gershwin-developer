@@ -66,3 +66,4 @@ libao-dev
 libsndfile1-dev
 libsqlite3-dev
 xdotool
+net-tools
