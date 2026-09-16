@@ -54,8 +54,11 @@ https://github.com/apple/swift-corelibs-libdispatch.git
 https://github.com/gnustep/libobjc2.git
 https://github.com/gnustep/tools-make.git
 https://github.com/gnustep/libs-base.git
+https://github.com/ngstep-app/libs-corebase.git
 https://github.com/gnustep/libs-gui.git
+https://github.com/ngstep-app/libs-opal.git
 https://github.com/gnustep/libs-back.git
+https://github.com/ngstep-app/libs-quartzcore.git
 https://github.com/gnustep/libs-av.git
 https://github.com/gnustep/libs-steptalk.git
 https://github.com/gershwin-desktop/gershwin-system.git
