@@ -1,0 +1,43 @@
+diff --git a/Source/OpalGraphics/OPImageConversion.m b/Source/OpalGraphics/OPImageConversion.m
+index 5aacc66..a3e588f 100644
+--- a/Source/OpalGraphics/OPImageConversion.m
++++ b/Source/OpalGraphics/OPImageConversion.m
+@@ -77,7 +77,13 @@ void OPImageFormatLog(OPImageFormat fmt, NSString *msg)
+ 		msg, compFormatString, fmt.colorComponents, fmt.hasAlpha, fmt.isAlphaPremultiplied, fmt.isAlphaLast);
+ }
+ 
+-static inline uint64_t swap64(uint64_t val)
++/* Named opal_swap64 rather than swap64: OpenBSD's <sys/endian.h> defines a
++ * function-like macro swap64(x), which the preprocessor expands even in this
++ * *definition*, mangling the signature and taking the whole file down with
++ * "expected ')'", "redefinition of '__uint64_t'" and an undeclared 'val'.
++ * FreeBSD spells the same helper bswap64 and glibc bswap_64, so only OpenBSD
++ * collides. */
++static inline uint64_t opal_swap64(uint64_t val)
+ {
+   char out[8];
+   char *in = (char *)(&val);
+@@ -112,12 +118,12 @@ _set_bit_value(unsigned char *base, size_t msb_off, size_t bit_width,
+     uint64_t value = val;
+     value &= ((1 << bit_width) - 1);
+     value <<= shift;
+-    value = swap64(value); // if little endian
++    value = opal_swap64(value); // if little endian
+ 
+     uint64_t mask = ((1 << bit_width) - 1);
+     mask <<= shift;
+     mask = ~mask;
+-    mask = swap64(mask);   // if little endian
++    mask = opal_swap64(mask);   // if little endian
+ 
+     *((uint64_t*)(base + byte1)) &= mask;
+     *((uint64_t*)(base + byte1)) |= value;
+@@ -165,7 +171,7 @@ _get_bit_value(const unsigned char *base, size_t msb_off, size_t bit_width)
+     }
+ 
+     uint64_t value = *((uint64_t*)chars);
+-    value = swap64(value); // if little endian
++    value = opal_swap64(value); // if little endian
+     value >>= shift;
+     value &= ((1<<bit_width)-1);
+   
