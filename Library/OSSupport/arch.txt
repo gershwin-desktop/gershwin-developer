@@ -3,6 +3,7 @@ clang
 libjpeg-turbo
 libtiff
 libpng
+lcms2
 libicns
 imagemagick
 libxml2

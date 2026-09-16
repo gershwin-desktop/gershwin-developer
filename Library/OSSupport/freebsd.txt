@@ -1,6 +1,7 @@
 jpeg-turbo
 tiff
 png
+lcms2
 ImageMagick7
 libxml2
 libxslt

@@ -8,6 +8,7 @@ openpam
 jpeg
 tiff
 png
+lcms2
 ImageMagick
 libxml
 libxslt

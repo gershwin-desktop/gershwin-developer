@@ -3,6 +3,7 @@ clang
 libturbojpeg0-dev
 libtiff5-dev
 libpng-dev
+liblcms2-dev
 icnsutils
 imagemagick
 libxml2-dev
