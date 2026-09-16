@@ -82,6 +82,9 @@ https://github.com/gershwin-desktop/gershwin-desktop.wiki.git
 # does not apply to the 2026-07-26 commits.
 # libs-opal was added later, at its 2026-08-17 HEAD, which is the tree
 # openbsd-swap64-name-collision.patch was written and dry-run against.
+# libs-corebase was pinned at its 2026-09-06 HEAD, the tree CI has been
+# building; it carries no patch, so the pin is only to stop it moving.
+# libs-quartzcore is deliberately still unpinned.
 PINS="
 libobjc2                    c9f4002
 libs-back                   bbcc3de
@@ -92,6 +95,7 @@ tools-make                  4e31a03
 libs-av                     26566e2
 libs-steptalk               2b57b46
 libs-opal                   98f8e4f
+libs-corebase               e89ff1f
 "
 
 # Echo the pinned commit for repo $1, or nothing if the repo is not pinned.
