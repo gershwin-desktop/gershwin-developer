@@ -235,10 +235,6 @@ build_corelibs() {
   $MAKE_CMD install
   $MAKE_CMD clean
 
-  # Patch libs-opal
-  echo "Patching libs-opal..."
-  patch.sh libs-opal
-
   cd "$REPOS_DIR/libs-opal"
   $MAKE_CMD -j"$CPUS" || exit 1
   $MAKE_CMD install
