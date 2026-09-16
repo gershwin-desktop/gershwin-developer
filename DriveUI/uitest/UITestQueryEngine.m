@@ -382,6 +382,10 @@ static void SetErr(NSString **err, NSString *m)
  * still match a German-running UI. */
 - (BOOL)title:(NSString *)title matches:(NSString *)segOrEnglish
 {
+  /* A tree row without a text value would otherwise match every needle:
+   * messaging nil returns a zeroed NSRange, whose location 0 is a hit. */
+  if (title == nil)
+    return NO;
   if ([title rangeOfString: segOrEnglish options: NSCaseInsensitiveSearch].location != NSNotFound)
     return YES;
   NSString *localized = [self localizeString: segOrEnglish];
