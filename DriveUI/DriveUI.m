@@ -28,6 +28,7 @@
  *   app                       -> the app's process name (for run_uitest's
  *                                `activate application "Name"` resolution)
  *   props <object_id>         -> enabled=1|0 state=0|1 for one widget
+ *                                (state: checked, docked or selected)
  *   parents <object_id>       -> the view/window ancestry of one widget
  *   menu                      -> main menu tree: depth\tindex\ttitle\tenabled\thas_submenu
  *   menu_invoke <i> <j> ...   -> perform the menu item's action at that index path
@@ -575,6 +576,18 @@ static void WriteAll(int fd, const char *bytes)
                         @try {
                           id d = [obj valueForKey: @"docked"];
                           state = [d boolValue] ? 1 : 0;
+                        } @catch (NSException *e) { }
+                      }
+                    /* File icons (FSNIcon) keep their selection as -isSelected;
+                     * a selected icon's label editor can be torn down by a
+                     * window resize while the icon stays selected, so only this
+                     * flag tells a script what the user actually sees. */
+                    else if (![obj isKindOfClass: [NSControl class]]
+                             && [obj respondsToSelector: @selector(isSelected)])
+                      {
+                        @try {
+                          id sel = [obj valueForKey: @"selected"];
+                          state = [sel boolValue] ? 1 : 0;
                         } @catch (NSException *e) { }
                       }
                   } @catch (NSException *e) { }
@@ -1194,6 +1207,15 @@ static NSString *ShortcutForItem(NSMenuItem *item)
          * themselves by their app name; expose it as the searchable text. */
         id n = [view performSelector: @selector(appName)];
         if (n && [n isKindOfClass: [NSString class]] && [n length] > 0) text = n;
+      } else if ([view respondsToSelector: @selector(node)]) {
+        /* File icons (FSNIcon in Workspace viewers and the Desktop) draw their
+         * label themselves, so they carry no title; the on-disk name of the
+         * node they show is what a script needs to address one icon. */
+        id node = [view performSelector: @selector(node)];
+        if ([node respondsToSelector: @selector(name)]) {
+          id n = [node performSelector: @selector(name)];
+          if (n && [n isKindOfClass: [NSString class]]) text = n;
+        }
       }
 
       NSString *screenFrame = @"";
@@ -1367,13 +1389,40 @@ static NSString *ShortcutForItem(NSMenuItem *item)
   return obj ? [NSString stringWithFormat: @"objc:%p", obj] : @"-";
 }
 
+/* Pointer comparison only: the candidate may already be freed, so it must
+ * never be messaged before it is found among live objects. */
+static BOOL DUIViewTreeContains(NSView *view, void *ptr)
+{
+  if ((void *)view == ptr) return YES;
+  if ([view isKindOfClass: [NSTabView class]])
+    {
+      for (NSTabViewItem *it in [(NSTabView *)view tabViewItems])
+        if ((void *)it == ptr) return YES;
+    }
+  for (NSView *sub in [view subviews])
+    if (DUIViewTreeContains(sub, ptr)) return YES;
+  return NO;
+}
+
 - (id)objectForID:(NSString *)objID
 {
   if (objID == nil || ![objID hasPrefix: @"objc:"]) return nil;
   unsigned long long ptrVal;
   NSScanner *scanner = [NSScanner scannerWithString: [objID substringFromIndex: 5]];
-  if ([scanner scanHexLongLong: &ptrVal])
-    return (__bridge id)(void *)ptrVal;
+  if (![scanner scanHexLongLong: &ptrVal]) return nil;
+
+  /* An id comes from an earlier snapshot, and the app may have released the
+   * object since (a viewer reloading its icons, a closed panel).  Resolving
+   * it blindly would crash the app under test, so only hand out objects that
+   * are still reachable the same way the snapshot found them. */
+  void *ptr = (void *)ptrVal;
+  if (ptr == (void *)NSApp) return NSApp;
+  for (NSWindow *win in [NSApp windows])
+    {
+      if ((void *)win == ptr) return win;
+      if (DUIViewTreeContains([win contentView], ptr))
+        return (__bridge id)ptr;
+    }
   return nil;
 }
 
