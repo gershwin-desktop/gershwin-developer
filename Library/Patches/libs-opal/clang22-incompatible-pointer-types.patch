@@ -34,3 +34,21 @@ index 8366a86..939266a 100644
  ADDITIONAL_OBJCFLAGS += -Wall -g -O0 -std=gnu99 -DINTERNAL_BUILD_OBJC -Wno-error=int-conversion
  ADDITIONAL_CPPFLAGS += $(shell pkg-config --cflags cairo)
  
+diff --git a/Tests/GNUmakefile b/Tests/GNUmakefile
+index 7ce04ff..c9d7fc7 100644
+--- a/Tests/GNUmakefile
++++ b/Tests/GNUmakefile
+@@ -34,6 +34,13 @@ else
+ ADDITIONAL_OBJC_LIBS += -lgdi32
+ endif
+ 
++# Clang 21+ promotes -Wincompatible-pointer-types from a warning to a default
++# error (Arch CI ships clang 22). Opal's toll-free-bridging code has ~227 of
++# them - CFStringRef/CFDataRef passed where NSString*/NSData* is declared, and
++# vice versa - which every earlier clang accepted. Demote it back to a warning,
++# exactly as the -Wno-error=int-conversion on the next line already does for the
++# equivalent clang 16 change.
++ADDITIONAL_OBJCFLAGS += -Wno-error=incompatible-pointer-types
+ ADDITIONAL_OBJCFLAGS += -Wall -g -O0 -std=gnu99 -Wno-error=int-conversion
+ ADDITIONAL_CFLAGS += -Wall -g -O0 -std=gnu99
+ ADDITIONAL_LDFLAGS += -L../Source/obj 
