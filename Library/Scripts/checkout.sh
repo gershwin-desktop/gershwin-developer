@@ -58,7 +58,6 @@ https://github.com/gnustep/libs-corebase.git
 https://github.com/gnustep/libs-gui.git
 https://github.com/gnustep/libs-opal.git
 https://github.com/gnustep/libs-back.git
-https://github.com/gnustep/libs-quartzcore.git
 https://github.com/gnustep/libs-av.git
 https://github.com/gnustep/libs-steptalk.git
 https://github.com/gershwin-desktop/gershwin-system.git
