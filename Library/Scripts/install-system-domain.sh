@@ -13,6 +13,19 @@ export_vars
 
 export REPOS_DIR="$WORKDIR/Library/Sources"
 
+# The Gershwin domain is a clang toolchain end to end: the ng-gnu-gnu library
+# combo is built on libobjc2, and the cmake stages already pin
+# -DCMAKE_C_COMPILER=clang. The autoconf stages, though, let configure pick its
+# own default, which on Linux is gcc. That is not just an inconsistency - on
+# Debian bookworm (gcc 12) libs-corebase's AC_CHECK_HEADERS([dispatch/dispatch.h])
+# fails against the libdispatch headers we just installed and configure aborts
+# with "Could not find the Grand Central Dispatch headers.". On the BSDs cc is
+# already clang, so this is a no-op there. An explicit CC/CXX/OBJC in the
+# environment still wins, so a deliberate override is unaffected.
+export CC="${CC:-clang}"
+export CXX="${CXX:-clang++}"
+export OBJC="${OBJC:-clang}"
+
 # Detect NextBSD - libdispatch is provided by the base system
 if [ -d "/usr/lib/system" ]; then
   NEXTBSD=1
