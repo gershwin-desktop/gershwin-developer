@@ -722,9 +722,20 @@ case DDSRoleLabel:                        return @"NSTextField";
         }
       else if ([kw isEqualToString: @"press"])
         {
-          cmd = [[[UITestCommand alloc] initWithType: DDSCmdPress
-            line: lineNo col: 1] autorelease];
-          cmd.string = ([words count] > 0) ? [words objectAtIndex: 0] : str1;
+          /* press key "Cmd+C" - real key events only; plain `press` turns a
+           * chord into its menu item's action, which bypasses the keyboard. */
+          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"key"])
+            {
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdPressKey
+                line: lineNo col: 1] autorelease];
+              cmd.string = str1;
+            }
+          else
+            {
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdPress
+                line: lineNo col: 1] autorelease];
+              cmd.string = ([words count] > 0) ? [words objectAtIndex: 0] : str1;
+            }
         }
       else if ([kw isEqualToString: @"run"])
         {

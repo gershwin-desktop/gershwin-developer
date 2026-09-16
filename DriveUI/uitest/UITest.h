@@ -73,6 +73,7 @@ typedef enum
   DDSCmdType,
   DDSCmdClear,
   DDSCmdPress,
+  DDSCmdPressKey,
   DDSCmdRun,
   DDSCmdWait,
   DDSCmdWaitUntil,
@@ -274,6 +275,9 @@ typedef enum
 - (BOOL)clearRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
              error:(NSString **)err;
 - (BOOL)pressKeyCombo:(NSString *)combo error:(NSString **)err;
+/* Always sends the chord as real X11 key events, never resolving it to a menu
+ * item, so scripts can prove that the keyboard path itself works. */
+- (BOOL)pressPhysicalKeyCombo:(NSString *)combo error:(NSString **)err;
 
 /* Dump the current visible widget tree as text (used by `record`).  Returns
  * nil if there is no target application. */

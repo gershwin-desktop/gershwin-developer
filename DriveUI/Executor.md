@@ -257,6 +257,14 @@ press Cmd+Q
 Presses a key or a key combination.  GNUstep's Command key is the left Alt
 key in X11, so `Cmd+...` presses Alt.
 
+A chord that matches a menu item's shortcut is not typed: the item's action
+is performed in-process.  To prove that the keyboard path itself works (the
+key equivalent reaching the menu), send real X11 key events instead:
+
+```text
+press key "Cmd+C"
+```
+
 ### wait
 
 ```text

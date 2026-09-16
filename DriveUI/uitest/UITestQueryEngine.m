@@ -1367,24 +1367,30 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
    * Menu.app's global Cmd+Space would silently do nothing.  Single keys
    * (Enter, Escape, ...) still use drive_ui's in-process `press` (XSendEvent),
    * which is sufficient for keys that are delivered to the focused window. */
-  NSString *sub = (parts.count > 1) ? @"physical_key" : @"press";
-  NSMutableArray *args = [NSMutableArray arrayWithArray:
-    [self argvForSubcommand: sub]];
   if (parts.count > 1)
+    return [self pressPhysicalKeyCombo: combo error: err];
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"press"]];
+  [args addObject: [parts lastObject]];
+  NSString *out = [self runCollect: args error: err];
+  return out != nil;
+}
+
+- (BOOL)pressPhysicalKeyCombo:(NSString *)combo error:(NSString **)err
+{
+  NSArray *parts = [combo componentsSeparatedByString: @"+"];
+  /* Build xdotool's "mods+key" form, e.g. "alt+space". */
+  NSMutableString *xcombo = [NSMutableString string];
+  for (NSUInteger i = 0; i + 1 < [parts count]; i++)
     {
-      /* Build xdotool's "mods+key" form, e.g. "alt+space". */
-      NSMutableString *combo = [NSMutableString string];
-      for (NSUInteger i = 0; i < [parts count] - 1; i++)
-        {
-          if ([combo length] > 0) [combo appendString: @"+"];
-          [combo appendString: [self normalizeMod: [parts objectAtIndex: i]]];
-        }
-      if ([combo length] > 0) [combo appendString: @"+"];
-      [combo appendString: [self normalizeKey: [parts lastObject]]];
-      [args addObject: combo];
+      if ([xcombo length] > 0) [xcombo appendString: @"+"];
+      [xcombo appendString: [self normalizeMod: [parts objectAtIndex: i]]];
     }
-  else
-    [args addObject: [parts lastObject]];
+  if ([xcombo length] > 0) [xcombo appendString: @"+"];
+  [xcombo appendString: [self normalizeKey: [parts lastObject]]];
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"physical_key"]];
+  [args addObject: xcombo];
   NSString *out = [self runCollect: args error: err];
   return out != nil;
 }
@@ -1495,7 +1501,9 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   if (k.length == 1)
     {
       unichar c = [k characterAtIndex: 0];
-      if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return key;
+      /* xdotool maps an uppercase letter keysym to Shift+letter, so "Cmd+C"
+       * would arrive as Cmd+Shift+C; Shift must only come from the modifiers. */
+      if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return k;
     }
   return key;
 }
