@@ -17,7 +17,7 @@ endif
 ADDITIONAL_INCLUDE_DIRS += $(X11_CFLAGS) -I..
 ADDITIONAL_LDFLAGS += $(X11_LIBS)
 
-drive_ui_OBJC_FILES = main.m ../X11Support.m
+drive_ui_OBJC_FILES = main.m ../X11Support.m ../DriveUITreeFormat.m
 drive_ui_LIBRARIES = gnustep-base gnustep-gui objc
 
 include $(GNUSTEP_MAKEFILES)/tool.make

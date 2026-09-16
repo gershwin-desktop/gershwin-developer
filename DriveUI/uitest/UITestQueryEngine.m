@@ -17,6 +17,7 @@
 
 #import "UITest.h"
 #import "../X11Support.h"
+#import "../DriveUITreeFormat.h"
 #import <pthread.h>
 #import <signal.h>
 #import <unistd.h>
@@ -554,9 +555,8 @@ static void SetErr(NSString **err, NSString *m)
   NSString *tree = [self runCollect: argv timeout: kToolTimeoutApp error: err];
   if (!tree) return NO;
   NSString *target = nil;
-  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+  for (NSArray *f in DriveUIParseTree(tree))
     {
-      NSArray *f = [line componentsSeparatedByString: @"\t"];
       if ([f count] < 9) continue;
       if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;   /* hidden */
       NSString *sf = [f objectAtIndex: 5];
@@ -598,9 +598,8 @@ static void SetErr(NSString **err, NSString *m)
   NSString *out = [self runCollect: argv error: err];
   if (!out) return nil;
   NSString *cls = UITestRoleClassName(role);
-  for (NSString *line in [out componentsSeparatedByString: @"\n"])
+  for (NSArray *f in DriveUIParseTree(out))
     {
-      NSArray *f = [line componentsSeparatedByString: @"\t"];
       if ([f count] < 9) continue;
       if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;
       if (![self class: [f objectAtIndex: 1] matchesRoleClass: cls]) continue;
@@ -631,9 +630,8 @@ static void SetErr(NSString **err, NSString *m)
     [self argvForSubcommand: @"get_full_tree"]];
   NSString *out = [self runCollect: argv error: err];
   if (!out) return nil;
-  for (NSString *line in [out componentsSeparatedByString: @"\n"])
+  for (NSArray *f in DriveUIParseTree(out))
     {
-      NSArray *f = [line componentsSeparatedByString: @"\t"];
       if ([f count] < 9) continue;
       if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;   /* hidden */
       if (![self class: [f objectAtIndex: 1] matchesRoleClass: @"NSWindow"]) continue;
@@ -1205,9 +1203,8 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   if (!tree) return nil;
   NSString *fieldID = nil;
   CGFloat bestY = -1;
-  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+  for (NSArray *f in DriveUIParseTree(tree))
     {
-      NSArray *f = [line componentsSeparatedByString: @"\t"];
       if ([f count] < 9) continue;
       if (![[f objectAtIndex: 1] isEqualToString: @"CompletionField"]) continue;
       NSRect r = NSRectFromString([f objectAtIndex: 5]);
@@ -1589,11 +1586,8 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
    * there.  Retry the tree fetch a few times so a busy spell does not turn an
    * `assert` into a spurious "widget not found".
    *
-   * The JSON tree is preferred: its text values are escaped, so a multi-line
-   * widget (e.g. a document view carrying a whole stderr dump) stays one row
-   * and remains matchable.  The plain-text tree cannot represent embedded
-   * newlines - such a row shatters into tab-less fragments that all fail the
-   * field-count check - so it is only a fallback for older drive_ui builds. */
+   * The JSON tree is preferred; the plain-text tree is only a fallback for
+   * older drive_ui builds without --json. */
   for (int attempt = 0; attempt < 8; attempt++)
     {
       NSArray *argv = [self argvForSubcommand: @"get_full_tree"];
@@ -1633,9 +1627,8 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
       if (tree != nil)
         {
           BOOL found = NO;
-          for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+          for (NSArray *f in DriveUIParseTree(tree))
             {
-              NSArray *f = [line componentsSeparatedByString: @"\t"];
               if ([f count] < 9) continue;
               NSString *lineCls = [f objectAtIndex: 1];
               NSString *lineText = [f objectAtIndex: 2];

@@ -14,7 +14,7 @@ endif
 ADDITIONAL_INCLUDE_DIRS += $(X11_CFLAGS) -I..
 ADDITIONAL_LDFLAGS += $(X11_LIBS)
 
-run_uitest_OBJC_FILES = main.m UITestParser.m UITestLexer.m UITestQueryEngine.m UITestExecutor.m ../X11Support.m
+run_uitest_OBJC_FILES = main.m UITestParser.m UITestLexer.m UITestQueryEngine.m UITestExecutor.m ../X11Support.m ../DriveUITreeFormat.m
 run_uitest_LIBRARIES = gnustep-base objc
 
 include $(GNUSTEP_MAKEFILES)/tool.make

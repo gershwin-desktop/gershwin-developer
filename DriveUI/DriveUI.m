@@ -34,7 +34,8 @@
  *   menu_invoke <i> <j> ...   -> perform the menu item's action at that index path
  *
  *  Snapshot fields (tab-separated): depth, class, text, tag, frame,
- *  screen_frame, hidden, enabled, object_id, window, stability.  `text` is the
+ *  screen_frame, hidden, enabled, object_id, window, stability.  Text fields
+ *  are escaped (DriveUITreeFormat.h) so multi-line text stays on one row.  `text` is the
  *  displayed (localized) title/stringValue, so drive_ui can find widgets by
  *  their on-screen label and then act on the id via X11 at the reported
  *  screen_frame.  `window` is the title of the owning window (empty for the app
@@ -59,6 +60,7 @@
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import "DriveUITreeFormat.h"
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/stat.h>
@@ -1671,15 +1673,15 @@ static BOOL DUIViewTreeContains(NSView *view, void *ptr)
     {
       [out appendFormat: @"%d\t%@\t%@\t%@\t%@\t%@\t%@\t%@\t%@\t%@\n",
          [[row objectAtIndex: 0] intValue],
-         [row objectAtIndex: 1],
-         [row objectAtIndex: 2],
+         DriveUIEscapeTreeField([row objectAtIndex: 1]),
+         DriveUIEscapeTreeField([row objectAtIndex: 2]),
          [row objectAtIndex: 3],
          [row objectAtIndex: 4],
          [row objectAtIndex: 5],
          [row objectAtIndex: 6],
          [row objectAtIndex: 7],
          ([row count] > 8) ? [row objectAtIndex: 8] : @"",
-         ([row count] > 9) ? [row objectAtIndex: 9] : @"low"];
+         DriveUIEscapeTreeField(([row count] > 9) ? [row objectAtIndex: 9] : @"low")];
     }
   return out;
 }

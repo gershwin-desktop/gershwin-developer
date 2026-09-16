@@ -68,6 +68,7 @@
 #import <sys/time.h>
 #import <unistd.h>
 #import "X11Support.h"
+#import "DriveUITreeFormat.h"
 
 /* Socket read timeout.  The Workspace (and other busy desktop apps) can take
  * longer than a second to answer a query, so 1s made app resolution flaky and
@@ -180,14 +181,7 @@ static NSString *FetchTree(int pid)
 
 static NSArray *ParseTree(NSString *out)
 {
-  NSMutableArray *rows = [NSMutableArray array];
-  if (!out) return rows;
-  for (NSString *line in [out componentsSeparatedByString: @"\n"])
-    {
-      if ([line length] == 0) continue;
-      [rows addObject: [line componentsSeparatedByString: @"\t"]];
-    }
-  return rows;
+  return DriveUIParseTree(out);
 }
 
 static void PrintRow(NSArray *f)
@@ -196,7 +190,7 @@ static void PrintRow(NSArray *f)
   for (NSUInteger i = 0; i < [f count]; i++)
     {
       if (i > 0) [s appendString: @"\t"];
-      [s appendString: [f objectAtIndex: i]];
+      [s appendString: DriveUIEscapeTreeField([f objectAtIndex: i])];
     }
   printf("%s\n", [s UTF8String]);
 }
@@ -1419,6 +1413,7 @@ int main(int argc, const char *argv[])
               != NSOrderedSame) continue;
           BOOL hidden = [r[6] isEqualToString: @"1"];
           if (hidden) continue;
+          if (wantWindow && !TitleMatches(pid, r[9], wantWindow)) continue;
           row = r;
           break;
         }

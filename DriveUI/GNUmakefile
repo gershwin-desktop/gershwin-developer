@@ -4,7 +4,7 @@ GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 BUNDLE_NAME = DriveUI
 BUNDLE_EXTENSION = .bundle
 
-DriveUI_OBJC_FILES = DriveUI.m
+DriveUI_OBJC_FILES = DriveUI.m DriveUITreeFormat.m
 DriveUI_PRINCIPAL_CLASS = DriveUI
 DriveUI_LIBRARIES = gnustep-base gnustep-gui objc
 
