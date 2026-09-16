@@ -1,0 +1,36 @@
+diff --git a/Source/OpalGraphics/GNUmakefile b/Source/OpalGraphics/GNUmakefile
+index 3052747..4f63f13 100644
+--- a/Source/OpalGraphics/GNUmakefile
++++ b/Source/OpalGraphics/GNUmakefile
+@@ -47,6 +47,13 @@ $(SUBPROJECT_NAME)_HEADER_FILES = \
+ 	CGEvent.h \
+ 	CGEventType.h \
+ 
++# Clang 21+ promotes -Wincompatible-pointer-types from a warning to a default
++# error (Arch CI ships clang 22). Opal's toll-free-bridging code has ~227 of
++# them - CFStringRef/CFDataRef passed where NSString*/NSData* is declared, and
++# vice versa - which every earlier clang accepted. Demote it back to a warning,
++# exactly as the -Wno-error=int-conversion on the next line already does for the
++# equivalent clang 16 change.
++ADDITIONAL_OBJCFLAGS += -Wno-error=incompatible-pointer-types
+ ADDITIONAL_OBJCFLAGS += -Wall -g -O0 -std=gnu99 -DINTERNAL_BUILD_OBJC -Wno-error=int-conversion
+ ADDITIONAL_CPPFLAGS += $(shell pkg-config --cflags cairo)
+ ADDITIONAL_CPPFLAGS += $(shell pkg-config --cflags lcms2)
+diff --git a/Source/OpalText/GNUmakefile b/Source/OpalText/GNUmakefile
+index 8366a86..939266a 100644
+--- a/Source/OpalText/GNUmakefile
++++ b/Source/OpalText/GNUmakefile
+@@ -32,6 +32,13 @@ $(SUBPROJECT_NAME)_HEADER_FILES = \
+ 	CTTypesetter.h\
+ 	SFNTLayoutTypes.h
+ 
++# Clang 21+ promotes -Wincompatible-pointer-types from a warning to a default
++# error (Arch CI ships clang 22). Opal's toll-free-bridging code has ~227 of
++# them - CFStringRef/CFDataRef passed where NSString*/NSData* is declared, and
++# vice versa - which every earlier clang accepted. Demote it back to a warning,
++# exactly as the -Wno-error=int-conversion on the next line already does for the
++# equivalent clang 16 change.
++ADDITIONAL_OBJCFLAGS += -Wno-error=incompatible-pointer-types
+ ADDITIONAL_OBJCFLAGS += -Wall -g -O0 -std=gnu99 -DINTERNAL_BUILD_OBJC -Wno-error=int-conversion
+ ADDITIONAL_CPPFLAGS += $(shell pkg-config --cflags cairo)
+ 
