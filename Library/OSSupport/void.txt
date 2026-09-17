@@ -3,6 +3,7 @@ clang
 libjpeg-turbo-devel
 tiff-devel
 libpng-devel
+lcms2-devel
 libicns-devel
 ImageMagick
 libxml2-devel

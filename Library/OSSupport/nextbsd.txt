@@ -2,6 +2,7 @@ llvm
 jpeg-turbo
 tiff
 png
+lcms2
 ImageMagick7
 libxml2
 libxslt
@@ -19,7 +20,6 @@ openssl
 freeglut
 giflib
 libao
-xorg-fonts-truetype
 dbus
 libxcb
 xcb-util-cursor
@@ -40,3 +40,4 @@ libvncserver
 freerdp
 ffmpeg
 sqlite3
+xdotool

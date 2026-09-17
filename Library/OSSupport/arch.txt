@@ -3,6 +3,7 @@ clang
 libjpeg-turbo
 libtiff
 libpng
+lcms2
 libicns
 imagemagick
 libxml2
@@ -22,8 +23,6 @@ openssl
 freeglut
 giflib
 libao
-xorg-fonts-type1
-xorg-fonts-75dpi
 dbus
 libxcb
 xcb-util-cursor
@@ -38,3 +37,4 @@ automake
 libtool
 ffmpeg
 sqlite
+xdotool

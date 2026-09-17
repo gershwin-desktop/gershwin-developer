@@ -27,6 +27,23 @@ SKIP_REPOS=$(printf '%s' "$SKIP_REPOS" | tr ',' ' ')
 # rollout works. Independent of PINNED: the pinned upstream libs don't carry
 # such a branch, so their pins are unaffected.
 BRANCH="${BRANCH:-}"
+
+# On GitHub Actions, prefer the dev branch automatically when the run is for
+# dev: the workflow's PR head branch, PR base branch, or the branch the run
+# was dispatched from is 'dev'.  This is what makes a "Dev" run test the dev
+# snapshots of the gershwin repos (which carry the uitests) without touching
+# the workflow.  An explicit BRANCH= still wins.
+if [ -z "$BRANCH" ]; then
+  for _ref in "${GITHUB_HEAD_REF:-}" "${GITHUB_BASE_REF:-}" "${GITHUB_REF#refs/heads/}"
+  do
+    if [ "$_ref" = "dev" ]; then
+      BRANCH=dev
+      echo "Detected a dev run; preferring the dev branch for Gershwin repos."
+      break
+    fi
+  done
+fi
+
 ON_BRANCH=""     # repos actually placed on $BRANCH (for the end-of-run summary)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -51,6 +68,7 @@ https://github.com/gershwin-desktop/gershwin-windowmanager.git
 https://github.com/gershwin-desktop/gershwin-components.git
 https://github.com/gershwin-desktop/gershwin-assets.git
 https://github.com/gershwin-desktop/docs.git
+https://github.com/gershwin-desktop/gershwin-desktop.wiki.git
 "
 
 # Pinned commits, as "<repo name> <commit>". These are upstream libraries; we pin
@@ -60,6 +78,11 @@ https://github.com/gershwin-desktop/docs.git
 # Refreshed 2026-07-26. Every patch under Library/Patches/ was dry-run against
 # these commits. libs-gui is held a day behind its HEAD: dropdown-tracking.patch
 # does not apply to the 2026-07-26 commits.
+# libs-opal was added later, at its 2026-08-17 HEAD, which is the tree
+# openbsd-swap64-name-collision.patch was written and dry-run against.
+# libs-corebase was pinned at its 2026-09-06 HEAD, the tree CI has been
+# building; it carries no patch, so the pin is only to stop it moving.
+# libs-quartzcore is deliberately still unpinned.
 PINS="
 libobjc2                    c9f4002
 libs-back                   bbcc3de
@@ -69,6 +92,8 @@ swift-corelibs-libdispatch  95f592a
 tools-make                  4e31a03
 libs-av                     26566e2
 libs-steptalk               2b57b46
+libs-opal                   98f8e4f
+libs-corebase               e89ff1f
 "
 
 # Echo the pinned commit for repo $1, or nothing if the repo is not pinned.

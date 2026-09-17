@@ -1,0 +1,251 @@
+--- a/Source/NSRunLoop.m
++++ b/Source/NSRunLoop.m
+@@ -496,6 +496,26 @@
+ 
+ @end
+ 
++/* Removes p from the performers of context, releasing it; returns NO if
++ * context did not hold p.
++ */
++static BOOL
++removePerformer(GSRunLoopCtxt *context, GSRunLoopPerformer *p)
++{
++  GSIArray	performers = context->performers;
++  unsigned	i = GSIArrayCount(performers);
++
++  while (i-- > 0)
++    {
++      if (GSIArrayItemAtIndex(performers, i).obj == p)
++	{
++	  GSIArrayRemoveItemAtIndex(performers, i);
++	  return YES;
++	}
++    }
++  return NO;
++}
++
+ @implementation NSRunLoop (Private)
+ 
+ /* Add a watcher to the list for the specified mode.  Keep the list in
+@@ -537,58 +557,49 @@
+ 	{
+           NSAutoreleasePool	*arp = [NSAutoreleasePool new];
+ 	  GSRunLoopPerformer	*array[count];
+-	  NSMapEnumerator	enumerator;
+-	  GSRunLoopCtxt		*original;
+-	  void			*mode;
++	  GSRunLoopCtxt		*original = context;
+ 	  unsigned		i;
+ 
+           found = YES;
+ 
+-	  /* We have to remove the performers before firing, so we copy
+-	   * the pointers without releasing the objects, and then set
+-	   * the performers to be empty.  The copied objects in 'array'
+-	   * will be released later.
++	  /* Only the performers queued now are due in this pass; ones
++	   * added while firing wait for the next pass.  Each one stays
++	   * registered until it is about to fire, because a performer may
++	   * run a nested run loop (a modal panel, a menu), and that loop
++	   * must be able to fire the performers queued behind it in the
++	   * modes it runs - otherwise, for example, no window is redrawn
++	   * until the panel is closed.
+ 	   */
+ 	  for (i = 0; i < count; i++)
+ 	    {
+-	      array[i] = GSIArrayItemAtIndex(performers, i).obj;
++	      array[i] = RETAIN(GSIArrayItemAtIndex(performers, i).obj);
+ 	    }
+-          performers->count = 0;
+ 
+-	  /* Remove the requests that we are about to fire from all modes.
+-	   */
+-          original = context;
+-	  enumerator = NSEnumerateMapTable(_contextMap);
+-	  while (NSNextMapEnumeratorPair(&enumerator, &mode, (void**)&context))
++	  for (i = 0; i < count; i++)
+ 	    {
+-	      if (context != nil && context != original)
++	      GSRunLoopPerformer	*p = array[i];
++
++	      /* A performer that is gone from this mode was fired by a
++	       * nested run loop or cancelled meanwhile.
++	       */
++	      if (removePerformer(original, p) == YES)
+ 		{
+-		  GSIArray	performers = context->performers;
+-		  unsigned	tmpCount = GSIArrayCount(performers);
++		  NSMapEnumerator	enumerator;
++		  void			*mode;
+ 
+-		  while (tmpCount--)
++		  enumerator = NSEnumerateMapTable(_contextMap);
++		  while (NSNextMapEnumeratorPair(&enumerator, &mode,
++		    (void**)&context))
+ 		    {
+-		      GSRunLoopPerformer	*p;
+-
+-		      p = GSIArrayItemAtIndex(performers, tmpCount).obj;
+-		      for (i = 0; i < count; i++)
++		      if (context != nil && context != original)
+ 			{
+-			  if (p == array[i])
+-			    {
+-			      GSIArrayRemoveItemAtIndex(performers, tmpCount);
+-			    }
++			  removePerformer(context, p);
+ 			}
+ 		    }
++		  NSEndMapTableEnumeration(&enumerator);
++		  [p fire];
+ 		}
+-	    }
+-	  NSEndMapTableEnumeration(&enumerator);
+-
+-	  /* Finally, fire the requests and release them.
+-	   */
+-	  for (i = 0; i < count; i++)
+-	    {
+-	      [array[i] fire];
+-	      RELEASE(array[i]);
++	      RELEASE(p);
+ 	      IF_NO_ARC([arp emptyPool];)
+ 	    }
+           [arp drain];
+--- /dev/null
++++ b/Tests/base/NSRunLoop/nestedPerformers.m
+@@ -0,0 +1,134 @@
++/*
++ * Copyright (c) 2026 Simon Peter
++ *
++ * SPDX-License-Identifier: BSD-2-Clause OR GPL-3.0-or-later
++ */
++#import "Testing.h"
++#import <Foundation/NSAutoreleasePool.h>
++#import <Foundation/NSDate.h>
++#import <Foundation/NSRunLoop.h>
++#import <Foundation/NSString.h>
++#import <Foundation/NSArray.h>
++#import <Foundation/NSTimer.h>
++
++static NSString * const nestedMode = @"GSTestNestedMode";
++
++/* Logs every performer it runs; -outer: runs a nested run loop pass the
++ * way a modal panel opened from a performer does. */
++@interface NestedRunner : NSObject
++{
++@public
++  NSMutableString *log;
++  NSString	  *cancelArgument;
++}
++@end
++
++@implementation NestedRunner
++- (id) init
++{
++  if ((self = [super init]) != nil)
++    {
++      log = [NSMutableString new];
++    }
++  return self;
++}
++
++- (void) dealloc
++{
++  [log release];
++  [super dealloc];
++}
++
++- (void) outer: (id)ignored
++{
++  NSRunLoop	*run = [NSRunLoop currentRunLoop];
++
++  [log appendString: @"A("];
++  if (cancelArgument != nil)
++    {
++      [run cancelPerformSelector: @selector(note:)
++			  target: self
++			argument: cancelArgument];
++    }
++  [run runMode: nestedMode
++    beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.2]];
++  [log appendString: @")"];
++}
++
++- (void) note: (NSString*)s
++{
++  [log appendString: s];
++}
++
++- (void) tick: (NSTimer*)t
++{
++}
++@end
++
++int main()
++{
++  NSAutoreleasePool	*arp = [NSAutoreleasePool new];
++  NSRunLoop		*run = [NSRunLoop currentRunLoop];
++  NSArray		*defaultOnly;
++  NSArray		*both;
++  NSTimer		*keepAlive;
++  NestedRunner		*r;
++
++  START_SET("NSRunLoop performers and nested run loops")
++
++  /* A run loop without timers or watchers returns at once; a far future
++   * timer in each mode keeps both of them runnable. */
++  keepAlive = [NSTimer timerWithTimeInterval: 1000.0
++				      target: [NestedRunner new]
++				    selector: @selector(tick:)
++				    userInfo: nil
++				     repeats: YES];
++  [run addTimer: keepAlive forMode: NSDefaultRunLoopMode];
++  [run addTimer: keepAlive forMode: nestedMode];
++
++  defaultOnly = [NSArray arrayWithObject: NSDefaultRunLoopMode];
++  both = [NSArray arrayWithObjects: NSDefaultRunLoopMode, nestedMode, nil];
++
++  r = [NestedRunner new];
++  [run performSelector: @selector(outer:) target: r argument: nil
++		 order: 0 modes: defaultOnly];
++  [run performSelector: @selector(note:) target: r argument: @"B"
++		 order: 10 modes: both];
++  [run runMode: NSDefaultRunLoopMode
++    beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.5]];
++  PASS_EQUAL(r->log, @"A(B)",
++    "a nested run loop fires a performer queued behind the running one"
++    " in a mode the nested loop runs, and it fires only once")
++  [r release];
++
++  r = [NestedRunner new];
++  [run performSelector: @selector(outer:) target: r argument: nil
++		 order: 0 modes: defaultOnly];
++  [run performSelector: @selector(note:) target: r argument: @"C"
++		 order: 10 modes: defaultOnly];
++  [run runMode: NSDefaultRunLoopMode
++    beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.5]];
++  PASS_EQUAL(r->log, @"A()C",
++    "a performer not scheduled in the nested mode waits for the outer pass")
++  [r release];
++
++  r = [NestedRunner new];
++  r->cancelArgument = @"D";
++  [run performSelector: @selector(outer:) target: r argument: nil
++		 order: 0 modes: defaultOnly];
++  [run performSelector: @selector(note:) target: r argument: @"D"
++		 order: 10 modes: defaultOnly];
++  [run runMode: NSDefaultRunLoopMode
++    beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.5]];
++  PASS_EQUAL(r->log, @"A()",
++    "a performer cancelled by an earlier performer of the same pass"
++    " does not fire")
++  [r release];
++
++  [keepAlive invalidate];
++
++  END_SET("NSRunLoop performers and nested run loops")
++
++  [arp release];
++  return 0;
++}
