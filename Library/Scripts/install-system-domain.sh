@@ -217,29 +217,12 @@ build_corelibs() {
   $MAKE_CMD install
   $MAKE_CMD clean
 
-  cd "$REPOS_DIR/libs-corebase"
-  ./configure \
-    CPPFLAGS="-I/System/Library/Headers" \
-    LDFLAGS="-L/System/Library/Libraries"
-  $MAKE_CMD -j"$CPUS" || exit 1
-  $MAKE_CMD install
-  $MAKE_CMD clean
-
   # Patch libs-gui
   echo "Patching libs-gui..."
   patch.sh libs-gui
 
   cd "$REPOS_DIR/libs-gui"
   ./configure $BUILD_FLAG
-  $MAKE_CMD -j"$CPUS" || exit 1
-  $MAKE_CMD install
-  $MAKE_CMD clean
-
-  # Patch libs-opal
-  echo "Patching libs-opal..."
-  patch.sh libs-opal
-
-  cd "$REPOS_DIR/libs-opal"
   $MAKE_CMD -j"$CPUS" || exit 1
   $MAKE_CMD install
   $MAKE_CMD clean
