@@ -139,9 +139,11 @@ wait until window "About This Computer"
 activate application "Workspace"
 ```
 
-Resolves the app by name (matching its running process) and raises its
-frontmost window if it has one.  Applications that have no clickable window,
-such as a desktop, are still selected as the target for later commands.
+Resolves the app by name (matching its running process), asks the window
+manager to activate its frontmost window that can take the keyboard, and waits
+until the app has it.  Nothing is clicked, so no widget of the app is touched
+(a click could hit a Dock icon and launch something).  Applications without
+such a window are still selected as the target for later commands.
 
 ### target application
 
@@ -150,10 +152,10 @@ target application "Menu"
 ```
 
 Resolves the app by name and makes it the target of subsequent commands
-without raising it.  Unlike `activate application`, it performs no click, so
-it is the right choice when raising the app's window would disturb on-screen
+without raising it.  Unlike `activate application`, it leaves the keyboard
+where it is, so it is the right choice when moving it would disturb on-screen
 state - e.g. retargeting to Menu.app while its Action Search box is open,
-which clicking the menu bar would dismiss.
+which loses its results when the focus moves.
 
 ### focus window
 

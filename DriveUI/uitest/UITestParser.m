@@ -592,9 +592,9 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* target application "X" - resolve the app's pid so subsequent
            * queries (find/type/assert) inspect its tree, WITHOUT raising it
-           * or clicking anything.  Differs from activate application, which
-           * raises+focuses the app's main window by clicking it - a click
-           * that would dismiss a popup (e.g. Menu.app's Action Search). */
+           * or moving the keyboard.  Differs from activate application,
+           * which gives the app's front window the keyboard - that would
+           * dismiss a popup (e.g. Menu.app's Action Search). */
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdTarget
             line: lineNo col: 1] autorelease];
           cmd.string = str1;

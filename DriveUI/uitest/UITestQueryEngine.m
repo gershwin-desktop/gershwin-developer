@@ -551,29 +551,17 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
-/* Raise + focus the app's main window by clicking it (activate).  The app is
- * already the resolved PID target; raising its frontmost window is best-effort
- * (some apps, e.g. a desktop, have no clickable title bar, and window facades
- * may not carry a screen frame). */
+/* Bring the app's front window forward through the window manager and wait
+ * until the app has the keyboard (drive_ui activate).  No click: it would land
+ * on whatever widget comes first, and on a Dock icon it launches an app that
+ * then takes the keyboard and swallows the test's typing.  An app without a
+ * window that can take the keyboard is still the PID target, so the following
+ * commands drive it directly. */
 - (BOOL)activate:(NSString **)err
 {
-  NSArray *argv = [self argvForSubcommand: @"get_full_tree"];
-  NSString *tree = [self runCollect: argv timeout: kToolTimeoutApp error: err];
-  if (!tree) return NO;
-  NSString *target = nil;
-  for (NSArray *f in DriveUIParseTree(tree))
-    {
-      if ([f count] < 9) continue;
-      if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;   /* hidden */
-      NSString *sf = [f objectAtIndex: 5];
-      if ([sf length] == 0) continue;                              /* no frame to click */
-      target = [f objectAtIndex: 8];
-      break;
-    }
-  /* Nothing clickable to raise - the app is already our PID target, so this is
-   * fine; the subsequent commands drive it directly. */
-  if (target == nil) return YES;
-  return [self clickObjectID: target button: 1 count: 1 error: err];
+  return [self runCollect: [self argvForSubcommand: @"activate"]
+                  timeout: kToolTimeoutApp
+                    error: err] != nil;
 }
 
 - (BOOL)focusMainWindow:(NSString **)err

@@ -628,6 +628,7 @@ static void Usage(void)
   printf("  drive_ui [--pid N] get <object_id> | --text <label> [--class C] [--window W] [--index N]\n");
   printf("  drive_ui [--pid N] get_many <object_id> ...    (text of several widgets, one per line)\n");
   printf("  drive_ui [--pid N] app                       (read-only: app name)\n");
+  printf("  drive_ui [--pid N] activate                  (bring the app's front window forward, no click)\n");
   printf("  drive_ui [--pid N] props <object_id>          (read-only: props)\n");
   printf("  drive_ui [--pid N] parents <object_id>         (read-only: view/window ancestry)\n");
   printf("  drive_ui [--pid N] diagnose [--class C] [--text T] [--tag N] [--window W] [--index N]\n");
@@ -919,6 +920,49 @@ int main(int argc, const char *argv[])
           return 1;
         }
       printf("%lu\n", (unsigned long)[X11Support countWindowsWithTitle: title]);
+    }
+  else if ([command isEqualToString: @"activate"])
+    {
+      /* Switch to the app the way the window manager does it, by asking it
+       * to activate the app's front window, and wait until the app really
+       * has the keyboard there.  Clicking into the app instead acts on
+       * whatever is under the pointer.  Prints 1 when activated, 0 when the
+       * app has no window that could take the keyboard. */
+      for (int attempt = 0; attempt < 20; attempt++)
+        {
+          NSString *reply = SendCommand(pid, @"front_window");
+          NSArray *f = [[reply stringByTrimmingCharactersInSet:
+                           [NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                          componentsSeparatedByString: @"\t"];
+          if ([f count] != 2)
+            {
+              fprintf(stderr, "drive_ui: activate: no front window reply\n");
+              [pool release];
+              return 1;
+            }
+          unsigned long xid = strtoul([[f objectAtIndex: 0] UTF8String], NULL, 10);
+          if (xid == 0)
+            {
+              printf("0\n");
+              [pool release];
+              return 0;
+            }
+          if ([[f objectAtIndex: 1] isEqualToString: @"1"])
+            {
+              printf("1\n");
+              [pool release];
+              return 0;
+            }
+          /* The window manager applies the request asynchronously; ask
+           * again only after it had time to act, re-reading the front
+           * window in case another one came up meanwhile. */
+          if (attempt % 4 == 0)
+            [X11Support activateWindow: xid];
+          usleep(100000);
+        }
+      fprintf(stderr, "drive_ui: activate: the app did not take the keyboard\n");
+      [pool release];
+      return 1;
     }
   else if ([command isEqualToString: @"xactivate"])
     {
