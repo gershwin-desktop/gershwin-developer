@@ -233,6 +233,14 @@ Opens the frontmost app's `Tools/Run...` dialog, types the command, and
 presses Return.  The Run dialog belongs to Workspace, so `activate
 application "Workspace"` first when it is not already the target.
 
+`run` cannot confirm what the dialog launched, so do not build fixtures on it:
+create them with `shell`, which runs the command in the harness and fails the
+step on a non-zero exit.
+
+```text
+shell "rm -rf /tmp/uitest-dnd-${home} && mkdir -p /tmp/uitest-dnd-${home}/Target"
+```
+
 **The global menu bar (Menu.app)**
 
 ```text

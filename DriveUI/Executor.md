@@ -222,6 +222,20 @@ drag row "Document" by 0 60
 Presses button 1 at the widget and drags it by the given pixel offset
 (moving windows and sliders, adjusting scrollbars, drag-and-drop).
 
+```text
+drag "report.txt" onto "Archive" in window "Documents"
+```
+
+Presses button 1 on the first widget and releases it over the centre of the
+second - the gesture that drops a file on a folder.  Naming the destination
+instead of measuring an offset keeps a script independent of icon size, grid
+spacing and window placement.  With `onto`, the second quoted string is the
+destination, so an `in window` clause takes the third.
+
+A drag holds the button down in the X server (XTest), exactly like a pointer
+does.  A synthetic press would leave the server's button state up, and the
+application would see the motion as plain mouse movement rather than a drag.
+
 ### type
 
 ```text
@@ -330,6 +344,19 @@ capture screenshot "workspace.png"
 
 Captures the whole screen to a PNG.  Without a filename the screenshot is
 written to `/tmp/run_uitest-<timestamp>.png`.
+
+### shell
+
+```text
+shell "rm -rf /tmp/fixture && mkdir -p /tmp/fixture/Target"
+shell "test -e /tmp/fixture/Target/moved.txt"
+```
+
+Runs a command with `/bin/sh -c` in the harness itself, as the user running
+the test, and waits for it to finish.  A non-zero exit fails the step.  Use it
+to set up and tear down fixtures, and to check what a UI action did to the
+file system.  Unlike `run`, which types into the application's Run dialog and
+cannot see what got launched, `shell` knows whether the command succeeded.
 
 ### log
 

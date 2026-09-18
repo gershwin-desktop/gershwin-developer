@@ -1305,6 +1305,28 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   return [self runCollect: args error: err] != nil;
 }
 
+- (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
+        ontoRole:(UITestRole)role2 title:(NSString *)title2 error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+
+  NSString *srcID = [self objectIDForRole: role title: title
+                                 inWindow: windowTitle error: err];
+  if (!srcID) return NO;
+
+  /* The destination is resolved in the same window scope as the source: a
+   * drop names two widgets a user can see at once. */
+  NSString *dstID = [self objectIDForRole: role2 title: title2
+                                 inWindow: windowTitle error: err];
+  if (!dstID) return NO;
+
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"drag_onto"]];
+  [args addObject: srcID];
+  [args addObject: dstID];
+  return [self runCollect: args error: err] != nil;
+}
+
 - (NSString *)widgetTreeText
 {
   if (pid_ == 0) return nil;

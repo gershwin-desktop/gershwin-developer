@@ -10,6 +10,7 @@
 #import <X11/Xutil.h>
 #import <X11/keysym.h>
 #import <X11/XKBlib.h>
+#import <X11/extensions/XTest.h>
 #include <unistd.h>
 
 @implementation X11Support
@@ -448,6 +449,7 @@ static void SendButton(Display *d, Window w, int wx, int wy, int rx, int ry,
     XSendEvent(d, w, True, press ? ButtonPressMask : ButtonReleaseMask, &e);
 }
 
+
 // Send a synthetic key event addressed to a specific GNUstep window.  This is
 // how typing is injected (see ResolveKeyTarget): it works without the app
 // holding the X input focus, which a window-managed desktop rarely guarantees.
@@ -592,11 +594,21 @@ static void SendKey(Display *d, Window w, KeyCode code,
     unsigned int mask = 0;
     if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
 
-    int tx = 0, ty = 0;
-    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
-    Time t = ServerTime(d);
-    SendButton(d, target, tx, ty, rx, ry, True, 1, 0, t);
-    XFlush(d);
+    /* A drag has to hold the button down for real.  A synthetic XSendEvent
+     * press leaves the server's own button state up, so every motion that
+     * follows is reported as a plain move and an application waiting for
+     * dragged events never sees the gesture at all.  XTest presses the button
+     * in the server, the way a real pointer does, so the whole toolkit stack
+     * treats this exactly like a user's drag. */
+    int event_base = 0, error_base = 0, major = 0, minor = 0;
+    if (!XTestQueryExtension(d, &event_base, &error_base, &major, &minor)) {
+        NSLog(@"X11Support: XTest missing, cannot simulate a drag");
+        return;
+    }
+
+    XTestFakeMotionEvent(d, -1, rx, ry, 0);
+    XTestFakeButtonEvent(d, 1, True, 0);
+    XSync(d, False);
     usleep(kPressHoldMicroseconds);
 
     const int steps = 12;
@@ -604,17 +616,15 @@ static void SendKey(Display *d, Window w, KeyCode code,
         double frac = (double)i / steps;
         int nx = rx + (int)lround(delta.x * frac);
         int ny = ry + (int)lround(delta.y * frac);
-        XWarpPointer(d, None, root, 0, 0, 0, 0, nx, ny);
+        XTestFakeMotionEvent(d, -1, nx, ny, 0);
         XSync(d, False);
         usleep(12000);
     }
 
-    // Release over the final position, resolving the window there so a drag
-    // that crosses windows ends at the target (drag-and-drop semantics).
-    int frx = 0, fry = 0, ftx = 0, fty = 0;
-    XQueryPointer(d, root, &r, &child, &frx, &fry, &wx, &wy, &mask);
-    Window ftarget = ResolveWindowAt(d, frx, fry, &ftx, &fty);
-    SendButton(d, ftarget, ftx, fty, frx, fry, False, 1, Button1Mask, t + 1);
+    /* Let the application act on the last position before the button comes
+     * up: where the pointer was at the release is what decides the drop. */
+    usleep(150000);
+    XTestFakeButtonEvent(d, 1, False, 0);
     XSync(d, False);
 }
 

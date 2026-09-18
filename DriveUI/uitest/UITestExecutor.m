@@ -122,6 +122,7 @@ static NSString *CommandName(UITestCommandType t)
       case DDSCmdPress:       return @"press";
       case DDSCmdPressKey:    return @"press key";
       case DDSCmdRun:         return @"run";
+      case DDSCmdShell:       return @"shell";
       case DDSCmdWait:        return @"wait";
       case DDSCmdWaitUntil:   return @"wait until";
       case DDSCmdAssert:      return @"assert";
@@ -347,6 +348,13 @@ static NSString *CommandName(UITestCommandType t)
     case DDSCmdDrag:
       {
         double dx = 0, dy = 0;
+        if (cmd.string2 != nil)
+          {
+            rc = [engine_ dragRole: cmd.role title: cmd.string inWindow: cmd.windowTitle
+                          ontoRole: cmd.role2 title: cmd.string2 error: &err]
+              ? 0 : DDSAccessibilityError;
+            break;
+          }
         NSArray *w = [cmd words];
         NSUInteger idx = 0;
         if ([w count] > 0 && [[w objectAtIndex: 0] isEqualToString: @"by"]) idx = 1;
@@ -382,6 +390,26 @@ static NSString *CommandName(UITestCommandType t)
     case DDSCmdRun:
       rc = [engine_ runCommandInRunDialog: cmd.string error: &err]
         ? 0 : DDSAccessibilityError;
+      break;
+    case DDSCmdShell:
+      {
+        /* A fixture that silently failed to appear would only surface later
+         * as a confusing timeout, so a non-zero exit fails the step here. */
+        if (!cmd.string) { err = @"shell needs a command"; rc = 1; break; }
+        NSTask *task = [[[NSTask alloc] init] autorelease];
+        [task setLaunchPath: @"/bin/sh"];
+        [task setArguments: [NSArray arrayWithObjects: @"-c", cmd.string, nil]];
+        [task launch];
+        [task waitUntilExit];
+        int status = [task terminationStatus];
+        if (status != 0)
+          {
+            err = [NSString stringWithFormat: @"shell command exited with %d", status];
+            rc = 1;
+          }
+        else
+          rc = 0;
+      }
       break;
     case DDSCmdWait:
       SleepSeconds([UITestExecutor durationForString: cmd.string]);

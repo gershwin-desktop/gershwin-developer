@@ -620,6 +620,7 @@ static void Usage(void)
   printf("  drive_ui [--pid N] scroll <dir> [n]           (scroll at pointer)\n");
   printf("  drive_ui [--pid N] scroll_into_view <object_id> (wheel toward a clipped/offscreen widget)\n");
   printf("  drive_ui [--pid N] drag <object_id> <dx> <dy> (press + drag by dx,dy)\n");
+  printf("  drive_ui [--pid N] drag_onto <src_object_id> <dst_object_id> (drop one widget on another)\n");
   printf("  drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C] [--window W] [--index N]\n");
   printf("  drive_ui [--pid N] sendkeys <text>          (type into focused field)\n");
   printf("  drive_ui [--pid N] clear <object_id> | --text <label> [--class C] [--window W] [--index N]\n");
@@ -1795,6 +1796,50 @@ int main(int argc, const char *argv[])
       [X11Support simulateMouseMoveTo: c];
       usleep(40000);
       [X11Support simulateDragBy: NSMakePoint(dx, dy)];
+    }
+  else if ([command isEqualToString: @"drag_onto"])
+    {
+      /* drag_onto <src_object_id> <dst_object_id> - press at the source
+       * widget and release over the destination, which is the gesture that
+       * drops a file on a folder.  Aiming at the destination's own centre
+       * keeps a test independent of icon size and grid spacing. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] < 2)
+        {
+          fprintf(stderr, "drive_ui: drag_onto needs <src_object_id> <dst_object_id>\n");
+          [pool release];
+          return 1;
+        }
+
+      NSArray *tree = ParseTree(FetchTree(pid));
+      NSArray *srcRow = ResolveRowByID(tree, [positionals objectAtIndex: 0]);
+      NSArray *dstRow = ResolveRowByID(tree, [positionals objectAtIndex: 1]);
+      if (srcRow == nil || dstRow == nil)
+        {
+          fprintf(stderr, "drive_ui: drag_onto: %s widget not found\n",
+                  (srcRow == nil) ? "source" : "destination");
+          [pool release];
+          return 1;
+        }
+
+      NSPoint from = CenterOfRow(srcRow);
+      NSPoint to = CenterOfRow(dstRow);
+      if ((from.x == 0 && from.y == 0) || (to.x == 0 && to.y == 0))
+        {
+          fprintf(stderr, "drive_ui: drag_onto: widget has no usable screen_frame\n");
+          [pool release];
+          return 1;
+        }
+
+      [X11Support simulateMouseMoveTo: from];
+      usleep(40000);
+      [X11Support simulateDragBy: NSMakePoint(to.x - from.x, to.y - from.y)];
     }
   else if ([command isEqualToString: @"press"])
     {

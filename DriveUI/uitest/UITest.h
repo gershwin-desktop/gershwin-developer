@@ -75,6 +75,7 @@ typedef enum
   DDSCmdPress,
   DDSCmdPressKey,
   DDSCmdRun,
+  DDSCmdShell,
   DDSCmdWait,
   DDSCmdWaitUntil,
   DDSCmdAssert,
@@ -156,6 +157,7 @@ typedef enum
   UITestAssertKind assertKind_;
   NSString *string_;       /* the quoted main string (title/text/path)   */
   NSString *string2_;      /* optional second string (e.g. assert target) */
+  UITestRole role2_;       /* optional second role (drag ... onto <role> "...") */
   NSString *windowTitle_;  /* optional "in window \"Title\"" scope        */
   UITestRole waitRole_;    /* compound "... and wait until <role>" target */
   int clickButton_;        /* compound verb's pointer button (1=left,3=right) */
@@ -172,6 +174,7 @@ typedef enum
 @property UITestAssertKind assertKind;
 @property (retain) NSString *string;
 @property (retain) NSString *string2;
+@property UITestRole role2;
 @property (retain) NSString *windowTitle;
 @property UITestRole waitRole;
 @property int clickButton;
@@ -257,6 +260,11 @@ typedef enum
         direction:(NSString *)direction amount:(int)amount error:(NSString **)err;
 - (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
             byX:(double)dx byY:(double)dy error:(NSString **)err;
+
+/* Press at one widget and release over another: the drop gesture, aimed at
+   the destination's centre rather than a pixel offset. */
+- (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
+        ontoRole:(UITestRole)role2 title:(NSString *)title2 error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
 - (BOOL)selectTabItem:(NSString *)label inWindow:(NSString *)windowTitle
                 error:(NSString **)err;

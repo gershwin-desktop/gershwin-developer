@@ -19,6 +19,7 @@
     {
       type_ = t;
       role_ = DDSRoleAny;
+      role2_ = DDSRoleAny;
       assertKind_ = DDSAssertExists;
       string_ = nil;
       string2_ = nil;
@@ -660,7 +661,11 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdClick
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          /* Only a recognised role word is consumed.  Dropping the first word
+           * unconditionally ate the "in" of a trailing "in window" clause when
+           * no role was given, so the window scope and any timeout after it were
+           * silently ignored. */
+          if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
           cmd.string = str1;
           cmd.clickButton = 1;
           cmd.clickCount = 1;
@@ -674,7 +679,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdDoubleClick
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
           cmd.string = str1;
           NSUInteger qi = 1;
           [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
@@ -699,7 +704,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdRightClick
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
           cmd.string = str1;
           NSUInteger qi = 1;
           [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
@@ -715,7 +720,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdClear
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
           cmd.string = str1;
           NSUInteger qi = 1;
           [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
@@ -745,6 +750,16 @@ case DDSRoleLabel:                        return @"NSTextField";
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
+      else if ([kw isEqualToString: @"shell"])
+        {
+          /* shell "command" - run a command in the harness itself, to set up
+           * or tear down fixtures.  Unlike `run`, which types into the
+           * target's Run dialog and cannot see what got launched, this knows
+           * the command finished and whether it succeeded. */
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdShell
+            line: lineNo col: 1] autorelease];
+          cmd.string = str1;
+        }
       else if ([kw isEqualToString: @"wait"])
         {
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"until"])
@@ -760,7 +775,7 @@ case DDSRoleLabel:                        return @"NSTextField";
               if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"exists"])
                 [words removeObjectAtIndex: 0];
               cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-              if ([words count] > 0) [words removeObjectAtIndex: 0];
+              if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
               cmd.string = str1;
               NSUInteger qi = 1;
               [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
@@ -858,7 +873,7 @@ case DDSRoleLabel:                        return @"NSTextField";
               else
                 {
               cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-              if ([words count] > 0) [words removeObjectAtIndex: 0];
+              if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
               cmd.string = str1;
               NSUInteger qi = 1;
               [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
@@ -916,7 +931,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdHover
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
           cmd.string = str1;
           NSUInteger qi = 1;
           [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
@@ -954,19 +969,38 @@ case DDSRoleLabel:                        return @"NSTextField";
       else if ([kw isEqualToString: @"drag"])
         {
           /* drag [role] "title" [by] <dx> <dy> - press at the widget and drag
-           * it by the given pixel offset. */
+           * it by the given pixel offset.
+           * drag [role] "title" onto [role] "title" - press at the first
+           * widget and release over the second, the drop gesture. */
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdDrag
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0 && cmd.role != DDSRoleAny)
             [words removeObjectAtIndex: 0];
           cmd.string = str1;
-          NSUInteger qi = 1;
+          BOOL onto = [words containsObject: @"onto"];
+          /* With a destination the second quoted string is its title, so an
+           * "in window" clause names the third one. */
+          NSUInteger qi = onto ? 2 : 1;
           [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
-          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"by"])
-            [words removeObjectAtIndex: 0];
-          if ([words count] > 0) [cmd.words addObject: [words objectAtIndex: 0]];
-          if ([words count] > 1) [cmd.words addObject: [words objectAtIndex: 1]];
+          if (onto)
+            {
+              /* The destination is named, not measured: its own centre is the
+               * drop point, so the script survives a different icon size or
+               * grid spacing. */
+              NSUInteger k = [words indexOfObject: @"onto"];
+              [words removeObjectAtIndex: k];
+              cmd.string2 = str2;
+              if (k < [words count])
+                cmd.role2 = UITestRoleFromName([words objectAtIndex: k]);
+            }
+          else
+            {
+              if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"by"])
+                [words removeObjectAtIndex: 0];
+              if ([words count] > 0) [cmd.words addObject: [words objectAtIndex: 0]];
+              if ([words count] > 1) [cmd.words addObject: [words objectAtIndex: 1]];
+            }
         }
       else if ([kw isEqualToString: @"repeat"])
         {
@@ -1032,7 +1066,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           if (!isMenuItem)
             {
               cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-              if ([words count] > 0) [words removeObjectAtIndex: 0];
+              if ([words count] > 0 && cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
               cmd.string = str1;
               NSUInteger qi = 1;
               [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
