@@ -235,8 +235,14 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
   [outHandle closeFile];
   [errHandle closeFile];
 
+  /* The error message is made in the pool as well, and the caller reads it
+   * after the pool is gone. */
   [result retain];
+  if (err && *err)
+    [*err retain];
   [pool drain];
+  if (err && *err)
+    [*err autorelease];
   return [result autorelease];
 }
 
@@ -1330,7 +1336,9 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
       [args addObject: @"--hold"];
       [args addObject: [NSString stringWithFormat: @"%d", (int)(hold * 1000)]];
     }
-  return [self runCollect: args error: err] != nil;
+  /* The drag takes as long as it rests on the destination, on top of the
+   * time any query may take: stopped half way, it leaves the button down. */
+  return [self runCollect: args timeout: kToolTimeoutFast + hold error: err] != nil;
 }
 
 - (NSString *)widgetTreeText
