@@ -1,0 +1,18 @@
+diff --git a/Tools/gpbs.m b/Tools/gpbs.m
+--- a/Tools/gpbs.m
++++ b/Tools/gpbs.m
+@@ -990,6 +990,14 @@
+ 	   name: NSConnectionDidDieNotification
+ 	 object: newConn];
+   [newConn setDelegate: self];
++  /* Count every client, not only those that own a pasteboard: with
++   * --auto the server exits when the last counted connection dies, and a
++   * client that only reads (a file manager validating its Paste item)
++   * would otherwise be left talking to a server that quit under it. */
++  if ([connections indexOfObjectIdenticalTo: newConn] == NSNotFound)
++    {
++      [connections addObject: newConn];
++    }
+   return YES;
+ }
+ 
