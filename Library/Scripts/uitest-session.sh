@@ -11,8 +11,15 @@
 #
 # Requires the test user to exist (run-uitests.sh creates it).
 #
+# Several sessions can run side by side, one per display/user pair (":98" with
+# "uitest98", ...).  Logs and the dbus address go to /tmp/uitest<N>_* where N
+# is the display number, and a display that another test user's session
+# already owns is refused, so a second session never disturbs a running one.
+#
 # Usage (as root or with passwordless sudo):
 #   sh Library/Scripts/uitest-session.sh [--nested]
+#   UITEST_ISOLATED_USER=uitest98 UITEST_ISOLATED_DISPLAY=:98 \
+#     sh Library/Scripts/uitest-session.sh --headless
 #   DISPLAY=:99 ... run_uitest --drive-tool drive_ui path/to/test.uitest
 set -u
 
@@ -70,6 +77,28 @@ if ! id "$UITEST_ISOLATED_USER" >/dev/null 2>&1; then
   exit 1
 fi
 
+_display_num=${UITEST_ISOLATED_DISPLAY#:}
+_display_num=${_display_num%%.*}
+UITEST_LOG_PREFIX="/tmp/uitest${_display_num}"
+# The X server outlives the session's user processes, so restarting a session
+# reuses it; the owner file tells our own leftover server apart from a
+# display that belongs to someone else's running test.
+_owner_file="/tmp/uitest-session.${_display_num}.owner"
+if xdpyinfo -display "$UITEST_ISOLATED_DISPLAY" >/dev/null 2>&1; then
+  _owner=$(cat "$_owner_file" 2>/dev/null || true)
+  if [ "$_owner" != "$UITEST_ISOLATED_USER" ]; then
+    echo "error: display $UITEST_ISOLATED_DISPLAY is in use" \
+      "(owner: ${_owner:-unknown}); pick another display and user" >&2
+    exit 1
+  fi
+fi
+
+_isolated_home=$(getent passwd "$UITEST_ISOLATED_USER" 2>/dev/null | cut -d: -f6)
+if [ -z "$_isolated_home" ]; then
+  echo "error: cannot determine home of '$UITEST_ISOLATED_USER'" >&2
+  exit 1
+fi
+
 # A killed session leaves a gdnc (DO name server) and GNUstepSecure temp state
 # behind, and a fresh gdnc cannot lock the port names - the desktop components
 # then fail with 'Failed to lock names for NSMessagePortNameServer'.  SIGKILL
@@ -103,6 +132,7 @@ if ! xdpyinfo -display "$UITEST_ISOLATED_DISPLAY" >/dev/null 2>&1; then
   done
   xdpyinfo -display "$UITEST_ISOLATED_DISPLAY" >/dev/null 2>&1 || {
     echo "X server did not come up on $UITEST_ISOLATED_DISPLAY" >&2; exit 1; }
+  echo "$UITEST_ISOLATED_USER" > "$_owner_file"
 fi
 
 echo "Starting isolated desktop for $UITEST_ISOLATED_USER on $UITEST_ISOLATED_DISPLAY"
@@ -116,17 +146,17 @@ run_as_user "$UITEST_ISOLATED_USER" sh -c '
 '
 
 run_as_user "$UITEST_ISOLATED_USER" sh -c '
-  export DISPLAY="$1" HOME="/home/uitest"
+  export DISPLAY="$1" HOME="$2"
   export GNUSTEP_SYSTEM_ROOT=/System GNUSTEP_LOCAL_ROOT=/Local GNUSTEP_NETWORK_ROOT=/Network
-  export GNUSTEP_USER_ROOT="/home/uitest/.GNUstep"
+  export GNUSTEP_USER_ROOT="$2/.GNUstep"
   export FONTCONFIG_FILE=/System/Library/Preferences/fonts.conf FONTCONFIG_PATH=/System/Library/Preferences
   export PATH=/System/Library/Tools:/usr/bin:/bin
   . /System/Library/Makefiles/GNUstep.sh
   eval $(dbus-launch --sh-syntax)
-  echo "$DBUS_SESSION_BUS_ADDRESS" > /tmp/uitest_dbus.txt
-  /System/Library/CoreServices/Applications/Menu.app/Menu >/tmp/uitest_menu.log 2>&1 &
-  /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >/tmp/uitest_wm.log 2>&1 &
-  /System/Applications/Workspace.app/Workspace >/tmp/uitest_ws.log 2>&1 &
-' _ "$UITEST_ISOLATED_DISPLAY"
+  echo "$DBUS_SESSION_BUS_ADDRESS" > "$3_dbus.txt"
+  /System/Library/CoreServices/Applications/Menu.app/Menu >"$3_menu.log" 2>&1 &
+  /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >"$3_wm.log" 2>&1 &
+  /System/Applications/Workspace.app/Workspace >"$3_ws.log" 2>&1 &
+' _ "$UITEST_ISOLATED_DISPLAY" "$_isolated_home" "$UITEST_LOG_PREFIX"
 
-echo "Desktop starting; check /tmp/uitest_ws.log and /tmp/driveui.<ws-pid>.sock"
+echo "Desktop starting; check ${UITEST_LOG_PREFIX}_ws.log and /tmp/driveui.<ws-pid>.sock"
