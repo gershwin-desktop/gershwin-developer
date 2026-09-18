@@ -49,6 +49,7 @@ wget
 sudo
 libcups2-dev
 libxcomposite-dev
+libxtst-dev
 libsquashfs-dev
 autoconf
 automake
