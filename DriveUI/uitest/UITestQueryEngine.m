@@ -1306,7 +1306,8 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
 }
 
 - (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
-        ontoRole:(UITestRole)role2 title:(NSString *)title2 error:(NSString **)err
+        ontoRole:(UITestRole)role2 title:(NSString *)title2
+            hold:(NSTimeInterval)hold error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
 
@@ -1324,6 +1325,11 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
     [self argvForSubcommand: @"drag_onto"]];
   [args addObject: srcID];
   [args addObject: dstID];
+  if (hold > 0)
+    {
+      [args addObject: @"--hold"];
+      [args addObject: [NSString stringWithFormat: @"%d", (int)(hold * 1000)]];
+    }
   return [self runCollect: args error: err] != nil;
 }
 

@@ -970,8 +970,9 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* drag [role] "title" [by] <dx> <dy> - press at the widget and drag
            * it by the given pixel offset.
-           * drag [role] "title" onto [role] "title" - press at the first
-           * widget and release over the second, the drop gesture. */
+           * drag [role] "title" onto [role] "title" [hold <dur>] - press at
+           * the first widget and release over the second, the drop gesture;
+           * with hold, resting on the second that long before letting go. */
           cmd = [[[UITestCommand alloc] initWithType: DDSCmdDrag
             line: lineNo col: 1] autorelease];
           cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
@@ -989,8 +990,16 @@ case DDSRoleLabel:                        return @"NSTextField";
                * drop point, so the script survives a different icon size or
                * grid spacing. */
               NSUInteger k = [words indexOfObject: @"onto"];
+              NSUInteger h;
               [words removeObjectAtIndex: k];
               cmd.string2 = str2;
+              /* hold <duration>: rest on the destination before letting go. */
+              h = [words indexOfObject: @"hold"];
+              if (h != NSNotFound && h + 1 < [words count])
+                {
+                  [cmd.words addObject: [words objectAtIndex: h + 1]];
+                  [words removeObjectsInRange: NSMakeRange(h, 2)];
+                }
               if (k < [words count])
                 cmd.role2 = UITestRoleFromName([words objectAtIndex: k]);
             }

@@ -587,6 +587,10 @@ static void SendKey(Display *d, Window w, KeyCode code,
 // app treats as the drag; press and release are sent as synthetic button
 // events to the GNUstep window under each position.
 + (void)simulateDragBy:(NSPoint)delta {
+    [self simulateDragBy: delta holdAtEnd: 0];
+}
+
++ (void)simulateDragBy:(NSPoint)delta holdAtEnd:(NSTimeInterval)hold {
     Display *d = [self display];
     if (!d) return;
     Window root = DefaultRootWindow(d), r, child;
@@ -624,6 +628,8 @@ static void SendKey(Display *d, Window w, KeyCode code,
     /* Let the application act on the last position before the button comes
      * up: where the pointer was at the release is what decides the drop. */
     usleep(150000);
+    if (hold > 0)
+        usleep((useconds_t)(hold * 1000000.0));
     XTestFakeButtonEvent(d, 1, False, 0);
     XSync(d, False);
 }

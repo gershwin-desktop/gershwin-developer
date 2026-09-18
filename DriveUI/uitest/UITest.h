@@ -264,7 +264,8 @@ typedef enum
 /* Press at one widget and release over another: the drop gesture, aimed at
    the destination's centre rather than a pixel offset. */
 - (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
-        ontoRole:(UITestRole)role2 title:(NSString *)title2 error:(NSString **)err;
+        ontoRole:(UITestRole)role2 title:(NSString *)title2
+            hold:(NSTimeInterval)hold error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
 - (BOOL)selectTabItem:(NSString *)label inWindow:(NSString *)windowTitle
                 error:(NSString **)err;

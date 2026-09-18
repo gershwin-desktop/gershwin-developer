@@ -620,7 +620,7 @@ static void Usage(void)
   printf("  drive_ui [--pid N] scroll <dir> [n]           (scroll at pointer)\n");
   printf("  drive_ui [--pid N] scroll_into_view <object_id> (wheel toward a clipped/offscreen widget)\n");
   printf("  drive_ui [--pid N] drag <object_id> <dx> <dy> (press + drag by dx,dy)\n");
-  printf("  drive_ui [--pid N] drag_onto <src_object_id> <dst_object_id> (drop one widget on another)\n");
+  printf("  drive_ui [--pid N] drag_onto <src_object_id> <dst_object_id> [--hold ms] (drop one widget on another)\n");
   printf("  drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C] [--window W] [--index N]\n");
   printf("  drive_ui [--pid N] sendkeys <text>          (type into focused field)\n");
   printf("  drive_ui [--pid N] clear <object_id> | --text <label> [--class C] [--window W] [--index N]\n");
@@ -1837,9 +1837,17 @@ int main(int argc, const char *argv[])
           return 1;
         }
 
+      NSTimeInterval hold = 0;
+      for (NSUInteger i = 1; i + 1 < [args count]; i++)
+        {
+          if ([[args objectAtIndex: i] isEqualToString: @"--hold"])
+            hold = atof([[args objectAtIndex: i + 1] UTF8String]) / 1000.0;
+        }
+
       [X11Support simulateMouseMoveTo: from];
       usleep(40000);
-      [X11Support simulateDragBy: NSMakePoint(to.x - from.x, to.y - from.y)];
+      [X11Support simulateDragBy: NSMakePoint(to.x - from.x, to.y - from.y)
+                       holdAtEnd: hold];
     }
   else if ([command isEqualToString: @"press"])
     {

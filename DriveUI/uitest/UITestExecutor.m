@@ -350,8 +350,10 @@ static NSString *CommandName(UITestCommandType t)
         double dx = 0, dy = 0;
         if (cmd.string2 != nil)
           {
+            NSTimeInterval hold = ([[cmd words] count] > 0)
+              ? [UITestExecutor durationForString: [[cmd words] objectAtIndex: 0]] : 0;
             rc = [engine_ dragRole: cmd.role title: cmd.string inWindow: cmd.windowTitle
-                          ontoRole: cmd.role2 title: cmd.string2 error: &err]
+                          ontoRole: cmd.role2 title: cmd.string2 hold: hold error: &err]
               ? 0 : DDSAccessibilityError;
             break;
           }

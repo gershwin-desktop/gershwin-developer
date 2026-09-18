@@ -21,6 +21,9 @@
 // offset, releasing over the end position (moving windows, sliders,
 // scrollbars, drag-and-drop).
 + (void)simulateDragBy:(NSPoint)delta;
+/* The same drag, resting at the destination for `hold` before the button
+ * comes up - long enough, say, for a folder there to spring open. */
++ (void)simulateDragBy:(NSPoint)delta holdAtEnd:(NSTimeInterval)hold;
 
 // Emit `count` wheel steps at the current pointer position.  direction is one
 // of "up"/"down"/"left"/"right" (X buttons 4/5/6/7).

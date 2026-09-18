@@ -227,7 +227,14 @@ drag "report.txt" onto "Archive" in window "Documents"
 ```
 
 Presses button 1 on the first widget and releases it over the centre of the
-second - the gesture that drops a file on a folder.  Naming the destination
+second - the gesture that drops a file on a folder.  `hold <duration>` rests
+on the second widget that long before letting go, long enough for a folder
+there to spring open:
+
+```text
+drag "report.txt" onto "Archive" in window "Documents" hold 1500ms
+```
+  Naming the destination
 instead of measuring an offset keeps a script independent of icon size, grid
 spacing and window placement.  With `onto`, the second quoted string is the
 destination, so an `in window` clause takes the third.
