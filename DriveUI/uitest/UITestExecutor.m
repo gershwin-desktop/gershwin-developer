@@ -117,6 +117,9 @@ static NSString *CommandName(UITestCommandType t)
       case DDSCmdHover:       return @"hover";
       case DDSCmdScroll:      return @"scroll";
       case DDSCmdDrag:        return @"drag";
+      case DDSCmdGrab:        return @"grab";
+      case DDSCmdMovePointer: return @"move pointer";
+      case DDSCmdReleasePointer: return @"release pointer";
       case DDSCmdType:        return @"type";
       case DDSCmdClear:       return @"clear";
       case DDSCmdPress:       return @"press";
@@ -136,6 +139,59 @@ static NSString *CommandName(UITestCommandType t)
       case DDSCmdCall:        return @"call";
       default:                return @"?";
     }
+}
+
+/* `by <dx> <dy>` or `to left|right|top|bottom [edge]` - where a grabbed
+ * pointer goes next. */
+- (BOOL)movePointerWithWords:(NSArray *)words error:(NSString **)err
+{
+  NSMutableArray *w = [NSMutableArray array];
+  for (NSString *word in words)
+    [w addObject: [self expandVariables: word]];
+  [w removeObject: @"edge"];
+  if ([w count] == 2 && [[w objectAtIndex: 0] isEqualToString: @"to"])
+    return [engine_ movePointerToEdge: [w objectAtIndex: 1] error: err];
+  if ([w count] == 3 && [[w objectAtIndex: 0] isEqualToString: @"by"])
+    return [engine_ movePointerByX: [[w objectAtIndex: 1] doubleValue]
+                                 y: [[w objectAtIndex: 2] doubleValue] error: err];
+  if (err) *err = @"the pointer moves `by <dx> <dy>` or `to left|right|top|bottom edge`";
+  return NO;
+}
+
+/* drag titlebar "Title" by <dx> <dy> | to <edge> edge [hold <dur>]: grab the
+ * titlebar, move, rest, release.  The button comes up whatever happened on
+ * the way, or it would stay down for the rest of the session. */
+- (BOOL)dragTitlebar:(UITestCommand *)cmd error:(NSString **)err
+{
+  NSMutableArray *w = [NSMutableArray arrayWithArray: [cmd words]];
+  NSTimeInterval hold = 0;
+  NSUInteger h = [w indexOfObject: @"hold"];
+  if (h != NSNotFound)
+    {
+      if (h + 1 >= [w count])
+        {
+          if (err) *err = @"hold needs a duration";
+          return NO;
+        }
+      hold = [UITestExecutor durationForString:
+        [self expandVariables: [w objectAtIndex: h + 1]]];
+      [w removeObjectsInRange: NSMakeRange(h, 2)];
+    }
+
+  if (![engine_ grabTitlebar: cmd.string error: err])
+    return NO;
+  BOOL ok = [self movePointerWithWords: w error: err];
+  /* Where the pointer rests before the button comes up is what the window
+   * manager acts on; a snap zone, for one, wants the pointer to linger. */
+  if (ok)
+    SleepSeconds(0.15 + hold);
+  NSString *releaseErr = nil;
+  if (![engine_ releasePointer: &releaseErr] && ok)
+    {
+      if (err) *err = releaseErr;
+      return NO;
+    }
+  return ok;
 }
 
 - (NSString *)formatCommand:(UITestCommand *)cmd
@@ -166,7 +222,10 @@ static NSString *CommandName(UITestCommandType t)
       if ([[cmd words] count] > 1)
         [s appendFormat: @" %@", [[cmd words] objectAtIndex: 1]];
     }
-  if (cmd.type == DDSCmdDrag && [[cmd words] count] > 0)
+  if ((cmd.type == DDSCmdDrag && cmd.role == DDSRoleTitlebar)
+      || cmd.type == DDSCmdMovePointer)
+    [s appendFormat: @" %@", [[cmd words] componentsJoinedByString: @" "]];
+  else if (cmd.type == DDSCmdDrag && [[cmd words] count] > 0)
     {
       [s appendFormat: @" by %@", [[cmd words] objectAtIndex: 0]];
       if ([[cmd words] count] > 1) [s appendFormat: @" %@", [[cmd words] objectAtIndex: 1]];
@@ -346,6 +405,11 @@ static NSString *CommandName(UITestCommandType t)
       }
       break;
     case DDSCmdDrag:
+      if (cmd.role == DDSRoleTitlebar)
+        {
+          rc = [self dragTitlebar: cmd error: &err] ? 0 : DDSAccessibilityError;
+          break;
+        }
       {
         double dx = 0, dy = 0;
         if (cmd.string2 != nil)
@@ -371,6 +435,17 @@ static NSString *CommandName(UITestCommandType t)
         rc = [engine_ dragRole: cmd.role title: cmd.string inWindow: cmd.windowTitle
           byX: dx byY: dy error: &err] ? 0 : DDSAccessibilityError;
       }
+      break;
+    case DDSCmdGrab:
+      rc = [engine_ grabTitlebar: cmd.string error: &err] ? 0 : DDSAccessibilityError;
+      if (rc == 0) pointerGrabbed_ = YES;
+      break;
+    case DDSCmdMovePointer:
+      rc = [self movePointerWithWords: [cmd words] error: &err] ? 0 : DDSAccessibilityError;
+      break;
+    case DDSCmdReleasePointer:
+      rc = [engine_ releasePointer: &err] ? 0 : DDSAccessibilityError;
+      pointerGrabbed_ = NO;
       break;
     case DDSCmdType:
       rc = [engine_ type: cmd.string error: &err] ? 0 : DDSAccessibilityError;
@@ -429,8 +504,8 @@ static NSString *CommandName(UITestCommandType t)
                 NSString *op = ([cmd.words count] > 0) ? [cmd.words objectAtIndex: 0] : @"=";
                 NSString *expectedStr = [self expandVariables: [cmd.words lastObject]];
                 int expected = [expectedStr intValue];
-                ok = [engine_ assertXWindowCount: cmd.string op: op expected: expected
-                  error: nil];
+                ok = [engine_ assertXWindow: cmd.string measure: cmd.string2 op: op
+                  expected: expected error: nil];
               }
             else if (cmd.assertKind == DDSAssertMenuBar || cmd.assertKind == DDSAssertMenuBarNot)
               {
@@ -452,15 +527,18 @@ static NSString *CommandName(UITestCommandType t)
       break;
     case DDSCmdSetCount:
       {
-        /* setcount VAR = count xwindow "Title" - store the window count at
-         * runtime so later comparisons can be relative. */
+        /* setcount VAR = count|x|y|width|height xwindow "Title" - store the
+         * window count, or a coordinate of the window's frame, at runtime so
+         * later comparisons can be relative. */
         NSString *var = cmd.string;
         NSString *title = cmd.string2;
+        NSString *measure = ([[cmd words] count] > 0) ? [[cmd words] objectAtIndex: 0] : @"count";
+        int value = 0;
         if (var == nil || [var length] == 0 || title == nil)
           { err = @"setcount needs VAR and a title"; rc = 1; break; }
-        int count = [engine_ countXWindowsWithTitle: title error: &err];
-        if (count < 0) { rc = 1; break; }
-        [program_.variables setObject: [NSString stringWithFormat: @"%d", count]
+        if (![engine_ measureXWindow: title measure: measure value: &value error: &err])
+          { rc = 1; break; }
+        [program_.variables setObject: [NSString stringWithFormat: @"%d", value]
                                forKey: var];
         rc = 0;
       }
@@ -493,8 +571,8 @@ static NSString *CommandName(UITestCommandType t)
           NSString *expectedStr = [self expandVariables: [cmd.words lastObject]];
           int expected = [expectedStr intValue];
           NSString *e2 = nil;
-          rc = [engine_ assertXWindowCount: cmd.string op: op expected: expected
-            error: &e2] ? 0 : DDSAssertFailed;
+          rc = [engine_ assertXWindow: cmd.string measure: cmd.string2 op: op
+            expected: expected error: &e2] ? 0 : DDSAssertFailed;
           err = e2;
         }
       else if (cmd.assertKind == DDSAssertMenuBar || cmd.assertKind == DDSAssertMenuBarNot)
@@ -755,7 +833,15 @@ static NSString *CommandName(UITestCommandType t)
 
 - (int)run
 {
-  return [self runSequence: program_.commands applyPolicy: YES];
+  int rc = [self runSequence: program_.commands applyPolicy: YES];
+  /* A script that stops between grab and release would leave the button
+   * down in the X server, turning every later click into a drag. */
+  if (pointerGrabbed_)
+    {
+      [engine_ releasePointer: nil];
+      pointerGrabbed_ = NO;
+    }
+  return rc;
 }
 
 @end

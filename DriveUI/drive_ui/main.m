@@ -26,6 +26,10 @@
  *   drive_ui [--pid N] scroll <dir> [n]       (scroll at the current pointer)
  *   drive_ui [--pid N] scroll_into_view <object_id>   (wheel toward a clipped/offscreen widget)
  *   drive_ui [--pid N] drag <object_id> <dx> <dy>   (press + drag by dx,dy)
+ *   drive_ui xwindow_frame <title>             (x y width height of a top-level window)
+ *   drive_ui titlebar_press <title>            (press button 1 on a window's titlebar)
+ *   drive_ui pointer_move <x> <y> | --by <dx> <dy> | --edge left|right|top|bottom
+ *   drive_ui pointer_release                   (release button 1)
  *   drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C] [--window W] [--index N]
  *   drive_ui [--pid N] sendkeys <text>          (type into the focused field)
  *   drive_ui [--pid N] clear <object_id> | --text <label> [--class C] [--window W] [--index N]
@@ -920,6 +924,100 @@ int main(int argc, const char *argv[])
           return 1;
         }
       printf("%lu\n", (unsigned long)[X11Support countWindowsWithTitle: title]);
+    }
+  else if ([command isEqualToString: @"xwindow_frame"])
+    {
+      /* xwindow_frame <title> - print "x y width height" of the first
+       * viewable top-level window whose name contains <title>, in root
+       * coordinates (origin top-left).  For a decorated window that is the
+       * window manager's frame, titlebar included. */
+      NSString *title = ([args count] > 1) ? [args objectAtIndex: 1] : nil;
+      unsigned long wid = [X11Support findViewableWindowWithTitle: title];
+      int x, y, w, h;
+      if (wid == 0 || ![X11Support geometryOfWindow: wid x: &x y: &y width: &w height: &h])
+        {
+          fprintf(stderr, "drive_ui: xwindow_frame: no window '%s'\n",
+                  title ? [title UTF8String] : "");
+          [pool release];
+          return 1;
+        }
+      printf("%d %d %d %d\n", x, y, w, h);
+    }
+  else if ([command isEqualToString: @"titlebar_press"])
+    {
+      /* titlebar_press <title> - press button 1 in the middle of the
+       * titlebar the window manager draws for an application window, and
+       * keep it down: pointer_move then drags the window, pointer_release
+       * drops it.  Window decorations belong to no application, so they have
+       * no widget tree to resolve them in. */
+      NSString *title = ([args count] > 1) ? [args objectAtIndex: 1] : nil;
+      unsigned long wid = [X11Support findWindowWithTitle: title];
+      NSPoint p;
+      if (wid == 0 || ![X11Support titlebarPointOfWindow: wid point: &p])
+        {
+          fprintf(stderr, "drive_ui: titlebar_press: no decorated window '%s'\n",
+                  title ? [title UTF8String] : "");
+          [pool release];
+          return 1;
+        }
+      [X11Support simulateMouseMoveTo: p];
+      [X11Support movePointerTo: p steps: 1];
+      usleep(40000);
+      if (![X11Support setButton: 1 pressed: YES])
+        {
+          [pool release];
+          return 1;
+        }
+    }
+  else if ([command isEqualToString: @"pointer_move"])
+    {
+      /* pointer_move <x> <y> | --by <dx> <dy> | --edge left|right|top|bottom
+       * Move the pointer there in even steps; with a button held down this is
+       * a drag.  An edge keeps the other coordinate, so a window dragged to
+       * the left edge arrives at the height it was grabbed at. */
+      NSPoint from = [X11Support pointerLocation];
+      NSPoint to = from;
+      NSString *a1 = ([args count] > 1) ? [args objectAtIndex: 1] : @"";
+      if ([a1 isEqualToString: @"--edge"] && [args count] > 2)
+        {
+          NSString *edge = [args objectAtIndex: 2];
+          if ([edge isEqualToString: @"left"]) to.x = 0;
+          else if ([edge isEqualToString: @"right"]) to.x = [X11Support screenWidth] - 1;
+          else if ([edge isEqualToString: @"top"]) to.y = 0;
+          else if ([edge isEqualToString: @"bottom"]) to.y = [X11Support screenHeight] - 1;
+          else
+            {
+              fprintf(stderr, "drive_ui: pointer_move: unknown edge '%s'\n", [edge UTF8String]);
+              [pool release];
+              return 1;
+            }
+        }
+      else if ([a1 isEqualToString: @"--by"] && [args count] > 3)
+        {
+          to.x += atof([[args objectAtIndex: 2] UTF8String]);
+          to.y += atof([[args objectAtIndex: 3] UTF8String]);
+        }
+      else if ([args count] > 2)
+        {
+          to.x = atof([a1 UTF8String]);
+          to.y = atof([[args objectAtIndex: 2] UTF8String]);
+        }
+      else
+        {
+          fprintf(stderr, "drive_ui: pointer_move needs <x> <y>, --by <dx> <dy> or --edge <edge>\n");
+          [pool release];
+          return 1;
+        }
+      [X11Support movePointerTo: to steps: 12];
+    }
+  else if ([command isEqualToString: @"pointer_release"])
+    {
+      /* pointer_release - let button 1 come up where the pointer is. */
+      if (![X11Support setButton: 1 pressed: NO])
+        {
+          [pool release];
+          return 1;
+        }
     }
   else if ([command isEqualToString: @"activate"])
     {

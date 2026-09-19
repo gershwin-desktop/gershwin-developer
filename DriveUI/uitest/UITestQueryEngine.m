@@ -1053,31 +1053,99 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   return [reply intValue];
 }
 
-- (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
-                  expected:(int)expected error:(NSString **)err
+- (BOOL)measureXWindow:(NSString *)title measure:(NSString *)measure
+                 value:(int *)value error:(NSString **)err
+{
+  if (measure == nil || [measure isEqualToString: @"count"])
+    {
+      int count = [self countXWindowsWithTitle: title error: err];
+      if (count < 0) return NO;
+      *value = count;
+      return YES;
+    }
+
+  NSUInteger field = [[NSArray arrayWithObjects: @"x", @"y", @"width", @"height", nil]
+    indexOfObject: measure];
+  if (field == NSNotFound)
+    {
+      SetErr(err, [NSString stringWithFormat: @"unknown xwindow measure '%@'", measure]);
+      return NO;
+    }
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"xwindow needs a title"); return NO; }
+  NSString *reply = [self runCollect: [NSArray arrayWithObjects:
+    @"xwindow_frame", title, nil] error: err];
+  if (!reply) return NO;
+  NSArray *parts = [[reply stringByTrimmingCharactersInSet:
+    [NSCharacterSet whitespaceAndNewlineCharacterSet]]
+    componentsSeparatedByString: @" "];
+  if ([parts count] != 4)
+    {
+      SetErr(err, [NSString stringWithFormat: @"no frame for xwindow '%@'", title]);
+      return NO;
+    }
+  *value = [[parts objectAtIndex: field] intValue];
+  return YES;
+}
+
+- (BOOL)assertXWindow:(NSString *)title measure:(NSString *)measure
+                   op:(NSString *)op expected:(int)expected error:(NSString **)err
 {
   if (title == nil || [title length] == 0)
-    { SetErr(err, @"assert xwindow count needs a title"); return NO; }
-  int count = [self countXWindowsWithTitle: title error: err];
-  if (count < 0) return NO;
+    { SetErr(err, @"assert xwindow needs a title"); return NO; }
+  int value = 0;
+  if (![self measureXWindow: title measure: measure value: &value error: err])
+    return NO;
 
   BOOL ok = NO;
-  if ([op isEqualToString: @"="]) ok = (count == expected);
-  else if ([op isEqualToString: @">"]) ok = (count > expected);
-  else if ([op isEqualToString: @">="]) ok = (count >= expected);
-  else if ([op isEqualToString: @"<"]) ok = (count < expected);
-  else if ([op isEqualToString: @"<="]) ok = (count <= expected);
-  else if ([op isEqualToString: @"!="]) ok = (count != expected);
-  else { SetErr(err, [NSString stringWithFormat: @"bad count operator '%@'", op]); return NO; }
+  if ([op isEqualToString: @"="]) ok = (value == expected);
+  else if ([op isEqualToString: @">"]) ok = (value > expected);
+  else if ([op isEqualToString: @">="]) ok = (value >= expected);
+  else if ([op isEqualToString: @"<"]) ok = (value < expected);
+  else if ([op isEqualToString: @"<="]) ok = (value <= expected);
+  else if ([op isEqualToString: @"!="]) ok = (value != expected);
+  else { SetErr(err, [NSString stringWithFormat: @"bad comparison operator '%@'", op]); return NO; }
 
   if (!ok)
     {
-      SetErr(err, [NSString stringWithFormat:
-        @"assert failed: %d windows match '%@' (expected %@ %d)",
-        count, title, op, expected]);
+      if (measure == nil || [measure isEqualToString: @"count"])
+        SetErr(err, [NSString stringWithFormat:
+          @"assert failed: %d windows match '%@' (expected %@ %d)",
+          value, title, op, expected]);
+      else
+        SetErr(err, [NSString stringWithFormat:
+          @"assert failed: xwindow '%@' %@ is %d (expected %@ %d)",
+          title, measure, value, op, expected]);
       return NO;
     }
   return YES;
+}
+
+- (BOOL)grabTitlebar:(NSString *)title error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"grab titlebar needs a window title"); return NO; }
+  return [self runCollect: [NSArray arrayWithObjects:
+    @"titlebar_press", title, nil] error: err] != nil;
+}
+
+- (BOOL)movePointerByX:(double)dx y:(double)dy error:(NSString **)err
+{
+  return [self runCollect: [NSArray arrayWithObjects: @"pointer_move", @"--by",
+    [NSString stringWithFormat: @"%g", dx],
+    [NSString stringWithFormat: @"%g", dy], nil] error: err] != nil;
+}
+
+- (BOOL)movePointerToEdge:(NSString *)edge error:(NSString **)err
+{
+  return [self runCollect: [NSArray arrayWithObjects: @"pointer_move", @"--edge",
+    edge ?: @"", nil] error: err] != nil;
+}
+
+- (BOOL)releasePointer:(NSString **)err
+{
+  return [self runCollect: [NSArray arrayWithObject: @"pointer_release"]
+                    error: err] != nil;
 }
 
 /* Resolve Menu.app's pid via its X11 window first (fast, no socket probing),

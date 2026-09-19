@@ -283,6 +283,33 @@ xwindow "Title"` records a count into a variable so later assertions can be
 relative (e.g. "no *new* window opened").  Counts are cheap and work for
 non-GNUstep windows too.
 
+Instead of `count`, `x`, `y`, `width` or `height` compare the first matching
+window's on-screen frame (titlebar included, pixels from the top-left of the
+screen), and `setcount WIDTH = width xwindow "Title"` records one:
+
+```text
+setcount WIDTH = width xwindow "EauTest"
+assert xwindow "EauTest" width != ${WIDTH}
+```
+
+**Window decorations**
+
+```text
+drag titlebar "EauTest" by 200 60
+drag titlebar "EauTest" to left edge hold 1s
+grab titlebar "EauTest"
+move pointer to left edge
+release pointer
+```
+
+Titlebars belong to the window manager, not to an application, so they are
+driven through the X display: `drag titlebar` presses in the middle of the
+window's titlebar, moves by an offset or to a screen edge and releases;
+`grab titlebar` / `move pointer` / `release pointer` split that gesture so a
+script can check the screen while the button is still down.  See
+`gershwin-windowmanager/Tests/window_snap.uitest` for window snapping and
+`control/window_decorations.uitest` for the commands themselves.
+
 **Dock icons**
 
 ```text

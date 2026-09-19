@@ -245,6 +245,42 @@ A drag holds the button down in the X server (XTest), exactly like a pointer
 does.  A synthetic press would leave the server's button state up, and the
 application would see the motion as plain mouse movement rather than a drag.
 
+### Window decorations
+
+```text
+drag titlebar "Notes" by 200 60
+drag titlebar "Notes" to left edge hold 1s
+
+grab titlebar "Notes"
+move pointer to left edge
+wait until xwindow "Snap Preview" x = 0
+move pointer by 400 50
+release pointer
+```
+
+The titlebar is drawn by the window manager, so it is in no application's
+widget tree; `titlebar "Title"` finds it through the X display by the window's
+title and presses in its middle, whatever height the theme and scale factor
+give it.  `drag titlebar` is one gesture: press, move `by <dx> <dy>` or `to
+left|right|top|bottom edge` (the pointer keeps its other coordinate), rest
+for the optional `hold` time, release.
+
+`grab titlebar` presses and keeps the button down, `move pointer` moves it
+while it is down, and `release pointer` lets go, so a script can check what
+the window manager shows in the middle of a drag - a snap preview, say.  If a
+script ends between `grab` and `release`, the button is released for it.
+
+A window's on-screen frame, titlebar included, can be compared and recorded
+like its count, in pixels from the top-left corner of the screen:
+
+```text
+assert xwindow "Notes" width = 400
+wait until xwindow "Notes" x > 100
+setcount WIDTH = width xwindow "Notes"
+```
+
+The measures are `count`, `x`, `y`, `width` and `height`.
+
 ### type
 
 ```text

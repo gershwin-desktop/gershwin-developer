@@ -1,0 +1,39 @@
+#!/usr/bin/env run_uitest
+#
+# Copyright (c) 2026 Simon Peter
+#
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# UITest language test for window decorations: moving a window by its titlebar
+# and reading its on-screen frame.  The titlebar belongs to the window manager,
+# not to the application, so it is reached through the X display.
+#
+# Run with: run_uitest DriveUI/uitest/Tests/control/window_decorations.uitest
+
+shell "pkill -x EauTest; sleep 1; true"
+launch application "EauTest"
+wait until xwindow "EauTest" count = 1
+
+setcount X = x xwindow "EauTest"
+setcount Y = y xwindow "EauTest"
+setcount WIDTH = width xwindow "EauTest"
+setcount HEIGHT = height xwindow "EauTest"
+assert xwindow "EauTest" width > 0
+
+# One gesture: press, move, release.
+drag titlebar "EauTest" by 40 30
+wait until xwindow "EauTest" x != ${X}
+assert xwindow "EauTest" y != ${Y}
+assert xwindow "EauTest" width = ${WIDTH}
+assert xwindow "EauTest" height = ${HEIGHT}
+
+# The same move back in steps, with the button held in between: the window is
+# where it started, so the pointer really dragged it both times.
+grab titlebar "EauTest"
+move pointer by -20 -10
+move pointer by -20 -20
+release pointer
+wait until xwindow "EauTest" x = ${X}
+assert xwindow "EauTest" y = ${Y}
+
+shell "pkill -x EauTest; true"

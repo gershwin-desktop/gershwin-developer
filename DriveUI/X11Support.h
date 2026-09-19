@@ -25,6 +25,26 @@
  * comes up - long enough, say, for a folder there to spring open. */
 + (void)simulateDragBy:(NSPoint)delta holdAtEnd:(NSTimeInterval)hold;
 
+// Pointer building blocks for a gesture spread over several commands, such as
+// holding a window at a screen edge while its snap preview is checked.  All
+// coordinates are X11 root coordinates (origin top-left).
++ (NSPoint)pointerLocation;
+// Move the pointer in `steps` even motions from where it is, so an application
+// tracking a drag sees the way, not just the destination.
++ (void)movePointerTo:(NSPoint)point steps:(int)steps;
+// Press or release a button in the X server (XTest), where the state stays
+// until released, across commands and processes.  NO without XTest.
++ (BOOL)setButton:(int)button pressed:(BOOL)pressed;
+
+// On-screen rectangle of a top-level window (the window manager's frame for a
+// decorated window) in root coordinates.  NO if the window is gone.
++ (BOOL)geometryOfWindow:(unsigned long)xid x:(int *)x y:(int *)y
+                   width:(int *)width height:(int *)height;
+// Middle of the titlebar of a decorated top-level window: the band between
+// the top of the window manager's frame and the client window inside it.
+// NO for a window without such a band (undecorated, or not framed).
++ (BOOL)titlebarPointOfWindow:(unsigned long)xid point:(NSPoint *)point;
+
 // Emit `count` wheel steps at the current pointer position.  direction is one
 // of "up"/"down"/"left"/"right" (X buttons 4/5/6/7).
 + (void)simulateScrollWheel:(NSString *)direction count:(int)count;

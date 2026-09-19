@@ -591,47 +591,121 @@ static void SendKey(Display *d, Window w, KeyCode code,
 }
 
 + (void)simulateDragBy:(NSPoint)delta holdAtEnd:(NSTimeInterval)hold {
-    Display *d = [self display];
-    if (!d) return;
-    Window root = DefaultRootWindow(d), r, child;
-    int rx = 0, ry = 0, wx = 0, wy = 0;
-    unsigned int mask = 0;
-    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
+    NSPoint start = [self pointerLocation];
 
-    /* A drag has to hold the button down for real.  A synthetic XSendEvent
-     * press leaves the server's own button state up, so every motion that
-     * follows is reported as a plain move and an application waiting for
-     * dragged events never sees the gesture at all.  XTest presses the button
-     * in the server, the way a real pointer does, so the whole toolkit stack
-     * treats this exactly like a user's drag. */
-    int event_base = 0, error_base = 0, major = 0, minor = 0;
-    if (!XTestQueryExtension(d, &event_base, &error_base, &major, &minor)) {
-        NSLog(@"X11Support: XTest missing, cannot simulate a drag");
-        return;
-    }
-
-    XTestFakeMotionEvent(d, -1, rx, ry, 0);
-    XTestFakeButtonEvent(d, 1, True, 0);
-    XSync(d, False);
+    /* XTest's own idea of the pointer must match the warped one before the
+     * button goes down, or the press lands where XTest last left it. */
+    [self movePointerTo: start steps: 1];
+    if (![self setButton: 1 pressed: YES]) return;
     usleep(kPressHoldMicroseconds);
 
-    const int steps = 12;
-    for (int i = 1; i <= steps; i++) {
-        double frac = (double)i / steps;
-        int nx = rx + (int)lround(delta.x * frac);
-        int ny = ry + (int)lround(delta.y * frac);
-        XTestFakeMotionEvent(d, -1, nx, ny, 0);
-        XSync(d, False);
-        usleep(12000);
-    }
+    [self movePointerTo: NSMakePoint(start.x + delta.x, start.y + delta.y)
+                  steps: 12];
 
     /* Let the application act on the last position before the button comes
      * up: where the pointer was at the release is what decides the drop. */
     usleep(150000);
     if (hold > 0)
         usleep((useconds_t)(hold * 1000000.0));
-    XTestFakeButtonEvent(d, 1, False, 0);
+    [self setButton: 1 pressed: NO];
+}
+
++ (NSPoint)pointerLocation {
+    Display *d = [self display];
+    if (!d) return NSZeroPoint;
+    Window root = DefaultRootWindow(d), r, child;
+    int rx = 0, ry = 0, wx = 0, wy = 0;
+    unsigned int mask = 0;
+    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask))
+        return NSZeroPoint;
+    return NSMakePoint(rx, ry);
+}
+
+static BOOL HasXTest(Display *d) {
+    int event_base = 0, error_base = 0, major = 0, minor = 0;
+    return XTestQueryExtension(d, &event_base, &error_base, &major, &minor);
+}
+
++ (void)movePointerTo:(NSPoint)point steps:(int)steps {
+    Display *d = [self display];
+    if (!d || !HasXTest(d)) return;
+    NSPoint from = [self pointerLocation];
+    if (steps < 1) steps = 1;
+    for (int i = 1; i <= steps; i++) {
+        double frac = (double)i / steps;
+        int nx = (int)lround(from.x + (point.x - from.x) * frac);
+        int ny = (int)lround(from.y + (point.y - from.y) * frac);
+        XTestFakeMotionEvent(d, -1, nx, ny, 0);
+        XSync(d, False);
+        if (steps > 1) usleep(12000);
+    }
+}
+
++ (BOOL)setButton:(int)button pressed:(BOOL)pressed {
+    Display *d = [self display];
+    if (!d) return NO;
+    /* A drag has to hold the button down for real.  A synthetic XSendEvent
+     * press leaves the server's own button state up, so every motion that
+     * follows is reported as a plain move and an application waiting for
+     * dragged events never sees the gesture at all.  XTest presses the button
+     * in the server, the way a real pointer does, so the whole toolkit stack
+     * treats this exactly like a user's drag. */
+    if (!HasXTest(d)) {
+        NSLog(@"X11Support: XTest missing, cannot press or release a button");
+        return NO;
+    }
+    XTestFakeButtonEvent(d, (unsigned int)button, pressed ? True : False, 0);
     XSync(d, False);
+    return YES;
+}
+
++ (BOOL)geometryOfWindow:(unsigned long)xid x:(int *)x y:(int *)y
+                   width:(int *)width height:(int *)height {
+    Display *d = [self display];
+    if (!d || xid == 0) return NO;
+    XWindowAttributes attrs;
+    Window child;
+    int rx = 0, ry = 0;
+    if (!XGetWindowAttributes(d, (Window)xid, &attrs)) return NO;
+    if (!XTranslateCoordinates(d, (Window)xid, DefaultRootWindow(d),
+                               0, 0, &rx, &ry, &child))
+        return NO;
+    *x = rx - attrs.border_width;
+    *y = ry - attrs.border_width;
+    *width = attrs.width + 2 * attrs.border_width;
+    *height = attrs.height + 2 * attrs.border_width;
+    return YES;
+}
+
++ (BOOL)titlebarPointOfWindow:(unsigned long)xid point:(NSPoint *)point {
+    Display *d = [self display];
+    if (!d || xid == 0) return NO;
+    int fx, fy, fw, fh;
+    if (![self geometryOfWindow: xid x: &fx y: &fy width: &fw height: &fh])
+        return NO;
+
+    /* The client is the frame's largest child; whatever the frame shows
+     * above it is the titlebar, however tall the theme and scale make it. */
+    Window root, parent, *children = NULL;
+    unsigned int n = 0;
+    if (!XQueryTree(d, (Window)xid, &root, &parent, &children, &n)) return NO;
+    long bestArea = 0;
+    int clientTop = 0;
+    for (unsigned int i = 0; i < n; i++) {
+        XWindowAttributes a;
+        if (!XGetWindowAttributes(d, children[i], &a)) continue;
+        if (a.map_state != IsViewable) continue;
+        long area = (long)a.width * a.height;
+        if (area > bestArea) {
+            bestArea = area;
+            clientTop = a.y;
+        }
+    }
+    if (children) XFree(children);
+    if (bestArea == 0 || clientTop <= 0) return NO;
+
+    *point = NSMakePoint(fx + fw / 2, fy + clientTop / 2);
+    return YES;
 }
 
 // Emit wheel (or tilt) steps at the current pointer location.  Up/down/left/
