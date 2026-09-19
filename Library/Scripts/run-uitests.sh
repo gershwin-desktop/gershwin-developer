@@ -484,6 +484,14 @@ if [ "$rc" -ne 0 ]; then
   print_session_logs
 fi
 
+# The tails above rarely reach back to the failing test; keep the whole logs
+# beside the JUnit report, which CI uploads as an artifact.
+for _log in /tmp/uitest_ws.log /tmp/uitest_workspace.log /tmp/uitest_menu.log /tmp/uitest_wm.log; do
+  [ -f "$_log" ] || continue
+  mkdir -p "$(dirname "$JUNIT_OUTPUT")"
+  cp "$_log" "$(dirname "$JUNIT_OUTPUT")/"
+done
+
 restore_appkit_bundles
 
 # Leave a clean slate: the isolated desktop (Menu, WindowManager, Workspace,
