@@ -708,6 +708,48 @@ static BOOL HasXTest(Display *d) {
     return YES;
 }
 
++ (NSDictionary *)titlebarButtonsOfWindow:(unsigned long)xid {
+    Display *d = [self display];
+    if (!d || xid == 0) return nil;
+    Atom prop = XInternAtom(d, "_WINDOW_TITLEBAR_BUTTONS", True);
+    if (prop == None) return nil;
+
+    /* The property sits on the titlebar, one of the frame's children. */
+    Window root, parent, *children = NULL;
+    unsigned int n = 0;
+    if (!XQueryTree(d, (Window)xid, &root, &parent, &children, &n)) return nil;
+    NSDictionary *result = nil;
+    for (unsigned int i = 0; i < n && result == nil; i++) {
+        Atom type;
+        int format;
+        unsigned long count, after;
+        unsigned char *data = NULL;
+        if (XGetWindowProperty(d, children[i], prop, 0, 64, False, XA_CARDINAL,
+                               &type, &format, &count, &after, &data) != Success)
+            continue;
+        if (type == XA_CARDINAL && format == 32 && count >= 5) {
+            int tx = 0, ty = 0;
+            Window child;
+            XTranslateCoordinates(d, children[i], DefaultRootWindow(d), 0, 0,
+                                  &tx, &ty, &child);
+            /* Format-32 property data comes back as longs on the client. */
+            long *v = (long *)data;
+            NSArray *names = @[ @"close", @"minimize", @"zoom" ];
+            NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
+            for (unsigned long k = 0; k + 4 < count; k += 5) {
+                if (v[k] < 0 || v[k] > 2) continue;
+                NSRect r = NSMakeRect(tx + v[k + 1], ty + v[k + 2], v[k + 3], v[k + 4]);
+                [buttons setObject: [NSValue valueWithRect: r]
+                            forKey: [names objectAtIndex: v[k]]];
+            }
+            result = buttons;
+        }
+        if (data) XFree(data);
+    }
+    if (children) XFree(children);
+    return result;
+}
+
 // Emit wheel (or tilt) steps at the current pointer location.  Up/down/left/
 // right are X buttons 4/5/6/7; each is a press/release addressed to the
 // GNUstep window under the pointer, mirroring a real wheel notch so controls

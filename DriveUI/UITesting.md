@@ -300,13 +300,15 @@ drag titlebar "EauTest" to left edge hold 1s
 grab titlebar "EauTest"
 move pointer to left edge
 release pointer
+click titlebar "EauTest" zoom
 ```
 
 Titlebars belong to the window manager, not to an application, so they are
 driven through the X display: `drag titlebar` presses in the middle of the
 window's titlebar, moves by an offset or to a screen edge and releases;
 `grab titlebar` / `move pointer` / `release pointer` split that gesture so a
-script can check the screen while the button is still down.  See
+script can check the screen while the button is still down; `click titlebar`
+clicks its close, minimize or zoom button where the window manager placed it.  See
 `gershwin-windowmanager/Tests/window_snap.uitest` for window snapping and
 `control/window_decorations.uitest` for the commands themselves.
 

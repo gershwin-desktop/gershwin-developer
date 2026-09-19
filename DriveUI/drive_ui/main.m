@@ -30,6 +30,8 @@
  *   drive_ui titlebar_press <title>            (press button 1 on a window's titlebar)
  *   drive_ui pointer_move <x> <y> | --by <dx> <dy> | --edge left|right|top|bottom
  *   drive_ui pointer_release                   (release button 1)
+ *   drive_ui titlebar_buttons <title>          (name x y width height of each titlebar button)
+ *   drive_ui titlebar_click <title> close|minimize|zoom
  *   drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C] [--window W] [--index N]
  *   drive_ui [--pid N] sendkeys <text>          (type into the focused field)
  *   drive_ui [--pid N] clear <object_id> | --text <label> [--class C] [--window W] [--index N]
@@ -1009,6 +1011,63 @@ int main(int argc, const char *argv[])
           return 1;
         }
       [X11Support movePointerTo: to steps: 12];
+    }
+  else if ([command isEqualToString: @"titlebar_buttons"]
+           || [command isEqualToString: @"titlebar_click"])
+    {
+      /* titlebar_buttons <title> - list the buttons the window manager
+       * draws in the window's titlebar, "name x y width height" per line in
+       * root coordinates.
+       * titlebar_click <title> close|minimize|zoom - click one of them.
+       * The buttons are pixels in the titlebar, not windows; their places
+       * come from the window manager's _WINDOW_TITLEBAR_BUTTONS. */
+      NSString *title = ([args count] > 1) ? [args objectAtIndex: 1] : nil;
+      unsigned long wid = [X11Support findWindowWithTitle: title];
+      NSDictionary *buttons = (wid != 0) ? [X11Support titlebarButtonsOfWindow: wid] : nil;
+      if (buttons == nil)
+        {
+          fprintf(stderr, "drive_ui: %s: no titlebar buttons for window '%s'\n",
+                  [command UTF8String], title ? [title UTF8String] : "");
+          [pool release];
+          return 1;
+        }
+      if ([command isEqualToString: @"titlebar_buttons"])
+        {
+          for (NSString *name in @[ @"close", @"minimize", @"zoom" ])
+            {
+              NSValue *v = [buttons objectForKey: name];
+              if (v == nil) continue;
+              NSRect r = [v rectValue];
+              printf("%s %d %d %d %d\n", [name UTF8String], (int)NSMinX(r), (int)NSMinY(r),
+                     (int)NSWidth(r), (int)NSHeight(r));
+            }
+        }
+      else
+        {
+          NSString *name = ([args count] > 2) ? [args objectAtIndex: 2] : @"";
+          NSValue *v = [buttons objectForKey: name];
+          if (v == nil)
+            {
+              fprintf(stderr, "drive_ui: titlebar_click: window '%s' has no %s button\n",
+                      [title UTF8String], [name UTF8String]);
+              [pool release];
+              return 1;
+            }
+          NSRect r = [v rectValue];
+          NSPoint c = NSMakePoint(NSMidX(r), NSMidY(r));
+          [X11Support simulateMouseMoveTo: c];
+          [X11Support movePointerTo: c steps: 1];
+          usleep(40000);
+          /* XTest, so the window manager's own grab and button handling see
+           * a real click. */
+          if (![X11Support setButton: 1 pressed: YES])
+            {
+              [pool release];
+              return 1;
+            }
+          usleep(40000);
+          [X11Support setButton: 1 pressed: NO];
+        }
     }
   else if ([command isEqualToString: @"pointer_release"])
     {

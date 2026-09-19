@@ -1142,6 +1142,15 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
     edge ?: @"", nil] error: err] != nil;
 }
 
+- (BOOL)clickTitlebarButton:(NSString *)button ofWindow:(NSString *)title
+                      error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"click titlebar needs a window title"); return NO; }
+  return [self runCollect: [NSArray arrayWithObjects:
+    @"titlebar_click", title, button ?: @"", nil] error: err] != nil;
+}
+
 - (BOOL)releasePointer:(NSString **)err
 {
   return [self runCollect: [NSArray arrayWithObject: @"pointer_release"]

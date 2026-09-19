@@ -212,6 +212,8 @@ static NSString *CommandName(UITestCommandType t)
       if (rn) [s appendFormat: @" %@", rn];
     }
   if (cmd.string) [s appendFormat: @" \"%@\"", cmd.string];
+  if (cmd.type == DDSCmdClick && cmd.role == DDSRoleTitlebar && cmd.string2)
+    [s appendFormat: @" %@", cmd.string2];
   if (cmd.windowTitle)
     [s appendFormat: @" in window \"%@\"", cmd.windowTitle];
   if (cmd.type == DDSCmdRepeat && [[cmd words] count] > 0)
@@ -333,6 +335,12 @@ static NSString *CommandName(UITestCommandType t)
     case DDSCmdClick:
     case DDSCmdDoubleClick:
     case DDSCmdRightClick:
+      if (cmd.type == DDSCmdClick && cmd.role == DDSRoleTitlebar)
+        {
+          rc = [engine_ clickTitlebarButton: cmd.string2 ofWindow: cmd.string error: &err]
+            ? 0 : DDSAccessibilityError;
+          break;
+        }
       {
         int btn = (cmd.type == DDSCmdRightClick) ? 3 : 1;
         int cnt = (cmd.type == DDSCmdDoubleClick) ? 2 : 1;

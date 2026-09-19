@@ -44,6 +44,11 @@
 // the top of the window manager's frame and the client window inside it.
 // NO for a window without such a band (undecorated, or not framed).
 + (BOOL)titlebarPointOfWindow:(unsigned long)xid point:(NSPoint *)point;
+// Buttons of a decorated window's titlebar, as published by the window
+// manager (_WINDOW_TITLEBAR_BUTTONS): button name ("close", "minimize",
+// "zoom") -> NSValue rect in root coordinates.  nil when the window manager
+// publishes none for this window.
++ (NSDictionary *)titlebarButtonsOfWindow:(unsigned long)xid;
 
 // Emit `count` wheel steps at the current pointer position.  direction is one
 // of "up"/"down"/"left"/"right" (X buttons 4/5/6/7).

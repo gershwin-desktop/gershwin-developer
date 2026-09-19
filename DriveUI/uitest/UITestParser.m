@@ -694,10 +694,28 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd.string = str1;
           cmd.clickButton = 1;
           cmd.clickCount = 1;
-          NSUInteger qi = 1;
-          [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
-          if ([self consumeWaitClauseIn: words command: cmd quotes: quotes quoteIndex: &qi])
-            cmd.type = DDSCmdClickAndWait;
+          if (cmd.role == DDSRoleTitlebar)
+            {
+              /* click titlebar "Title" close|minimize|zoom [button] */
+              [words removeObject: @"button"];
+              NSString *button = ([words count] == 1) ? [words objectAtIndex: 0] : nil;
+              if (str1 == nil || ![[NSArray arrayWithObjects: @"close", @"minimize", @"zoom", nil]
+                                     containsObject: button])
+                {
+                  if (err) *err = [NSString stringWithFormat:
+                    @"%@:%lu: click titlebar needs \"Title\" and close, minimize or zoom",
+                    name, (unsigned long)lineNo];
+                  return nil;
+                }
+              cmd.string2 = button;
+            }
+          else
+            {
+              NSUInteger qi = 1;
+              [self consumeWindowClauseIn: words command: cmd quotes: quotes quoteIndex: &qi];
+              if ([self consumeWaitClauseIn: words command: cmd quotes: quotes quoteIndex: &qi])
+                cmd.type = DDSCmdClickAndWait;
+            }
         }
       else if ([kw isEqualToString: @"doubleclick"])
         {

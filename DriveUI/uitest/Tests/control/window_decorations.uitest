@@ -4,9 +4,10 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# UITest language test for window decorations: moving a window by its titlebar
-# and reading its on-screen frame.  The titlebar belongs to the window manager,
-# not to the application, so it is reached through the X display.
+# UITest language test for window decorations: moving a window by its titlebar,
+# clicking its titlebar buttons and reading its on-screen frame.  The titlebar
+# belongs to the window manager, not to the application, so it is reached
+# through the X display.
 #
 # Run with: run_uitest DriveUI/uitest/Tests/control/window_decorations.uitest
 
@@ -35,5 +36,23 @@ move pointer by -20 -20
 release pointer
 wait until xwindow "EauTest" x = ${X}
 assert xwindow "EauTest" y = ${Y}
+
+# Titlebar buttons, where the window manager placed them: zoom fills the
+# screen and a second zoom gives the window back its size.
+click titlebar "EauTest" zoom
+wait until xwindow "EauTest" width > ${WIDTH}
+click titlebar "EauTest" zoom button
+wait until xwindow "EauTest" width = ${WIDTH}
+
+# Minimize takes the window off the screen.
+click titlebar "EauTest" minimize
+wait until xwindow "EauTest" count = 0
+
+# Close, on a fresh copy.
+shell "pkill -x EauTest; sleep 1; true"
+launch application "EauTest"
+wait until xwindow "EauTest" count = 1
+click titlebar "EauTest" close
+wait until xwindow "EauTest" count = 0
 
 shell "pkill -x EauTest; true"

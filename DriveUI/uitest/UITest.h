@@ -293,6 +293,9 @@ typedef enum
 - (BOOL)movePointerByX:(double)dx y:(double)dy error:(NSString **)err;
 - (BOOL)movePointerToEdge:(NSString *)edge error:(NSString **)err;
 - (BOOL)releasePointer:(NSString **)err;
+/* button is "close", "minimize" or "zoom", placed by the window manager. */
+- (BOOL)clickTitlebarButton:(NSString *)button ofWindow:(NSString *)title
+                      error:(NSString **)err;
 - (BOOL)menuBarHasItem:(NSString *)title exists:(BOOL)exists error:(NSString **)err;
 - (int)countXWindowsWithTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;

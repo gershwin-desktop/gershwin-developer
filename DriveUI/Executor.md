@@ -265,6 +265,18 @@ give it.  `drag titlebar` is one gesture: press, move `by <dx> <dy>` or `to
 left|right|top|bottom edge` (the pointer keeps its other coordinate), rest
 for the optional `hold` time, release.
 
+```text
+click titlebar "Notes" zoom
+click titlebar "Notes" minimize
+click titlebar "Notes" close
+```
+
+`click titlebar` clicks one of the titlebar buttons (`close`, `minimize` or
+`zoom`; a trailing `button` is allowed).  They are drawn by the theme inside
+the titlebar and are no windows of their own; the window manager publishes
+where they are on the titlebar window (`_WINDOW_TITLEBAR_BUTTONS`), and the
+click fails when a window has no such button.
+
 `grab titlebar` presses and keeps the button down, `move pointer` moves it
 while it is down, and `release pointer` lets go, so a script can check what
 the window manager shows in the middle of a drag - a snap preview, say.  If a
