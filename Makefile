@@ -2,7 +2,7 @@
 
 # None of these targets produce a file of their own name, so they must never be
 # considered up to date: "make install" rebuilds and reinstalls every time.
-.PHONY: check_root install bootstrap checkout system corelibs workspace \
+.PHONY: check_root install bootstrap selfupdate checkout system corelibs workspace \
 	systempreferences eau-theme terminal textedit windowmanager components \
 	tooling test uninstall
 
@@ -22,10 +22,16 @@ install: system
 bootstrap: check_root
 	@sh ./Library/Scripts/bootstrap.sh
 
-checkout: check_root
+# This checkout is refreshed before checkout.sh runs, so a build never uses a
+# stale checkout.sh, patch set or install script. Non-fatal, and skipped with
+# SELF_UPDATE=0 -- see the script.
+selfupdate: check_root
+	@sh ./Library/Scripts/self-update.sh
+
+checkout: check_root selfupdate
 	@sh ./Library/Scripts/checkout.sh
 
-system: check_root bootstrap checkout
+system: check_root bootstrap selfupdate checkout
 	@echo "Installing GNUstep System Domain..."
 	@FROM_MAKEFILE=1 sh ./Library/Scripts/install-system-domain.sh all
 
