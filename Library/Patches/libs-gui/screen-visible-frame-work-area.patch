@@ -1,0 +1,58 @@
+diff --git a/Headers/Additions/GNUstepGUI/GSDisplayServer.h b/Headers/Additions/GNUstepGUI/GSDisplayServer.h
+index 07973f087..dd53c486e 100644
+--- a/Headers/Additions/GNUstepGUI/GSDisplayServer.h
++++ b/Headers/Additions/GNUstepGUI/GSDisplayServer.h
+@@ -101,6 +101,7 @@ APPKIT_EXPORT_CLASS
+ /* Screen information */
+ - (NSSize) resolutionForScreen: (int)screen;
+ - (NSRect) boundsForScreen: (int)screen;
++- (NSRect) workAreaForScreen: (int)screen;
+ - (NSWindowDepth) windowDepthForScreen: (int)screen;
+ - (const NSWindowDepth *) availableDepthsForScreen: (int)screen;
+ - (NSArray *) screenList;
+diff --git a/Source/GSDisplayServer.m b/Source/GSDisplayServer.m
+index e5f494273..f6cc88fcc 100644
+--- a/Source/GSDisplayServer.m
++++ b/Source/GSDisplayServer.m
+@@ -430,6 +430,16 @@ GSCurrentServer(void)
+   return NSZeroRect;
+ }
+ 
++/** Returns the area, in pixels, of the indicated screen that the window
++    manager leaves to application windows, i.e. without docks and panels. */
++- (NSRect) workAreaForScreen: (int)screen
++{
++  /* An empty rect means the server does not know of one, and the caller
++   * keeps the whole screen; a display server that has no notion of a work
++   * area must not make -[NSScreen visibleFrame] raise. */
++  return NSZeroRect;
++}
++
+ /** Returns the default depth of windows that are created on screen. */
+ - (NSWindowDepth) windowDepthForScreen: (int)screen
+ {
+diff --git a/Source/NSScreen.m b/Source/NSScreen.m
+index 77850e7ba..6e2ce137b 100644
+--- a/Source/NSScreen.m
++++ b/Source/NSScreen.m
+@@ -345,12 +345,20 @@ static NSMutableArray *screenArray = nil;
+ 
+ /**
+  * Returns the NSRect representing the visible area of the screen.
++ * This accounts for the WM-reserved work area and the GNUstep menu bar.
+  */
+ - (NSRect) visibleFrame
+ {
+   NSRect visFrame = _frame;
+   float menuHeight;
+ 
++  /* Start with the WM work area if available; fall back to the full frame. */
++  NSRect workArea = [GSCurrentServer() workAreaForScreen: _screenNumber];
++  if (!NSIsEmptyRect(workArea))
++    {
++      visFrame = workArea;
++    }
++
+   switch (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil))
+     {
+       case NSMacintoshInterfaceStyle:
