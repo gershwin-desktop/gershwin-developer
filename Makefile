@@ -1,3 +1,11 @@
+.NOTPARALLEL:
+
+# None of these targets produce a file of their own name, so they must never be
+# considered up to date: "make install" rebuilds and reinstalls every time.
+.PHONY: check_root install bootstrap checkout system corelibs workspace \
+	systempreferences eau-theme terminal textedit windowmanager components \
+	tooling test uninstall
+
 check_root:
 	@if [ `id -u` -ne 0 ]; then \
 		echo "This Makefile must be run as root or with sudo."; \
@@ -6,13 +14,20 @@ check_root:
 
 install: system
 
-system: check_root
-	@if [ -d "/System/Applications" ]; then \
-		echo "Gershwin System Domain appears to be already installed."; \
-	else \
-		echo "Installing GNUstep System Domain..."; \
-		FROM_MAKEFILE=1 sh ./Library/Scripts/install-system-domain.sh all; \
-	fi
+# Every build starts from a refreshed tree: bootstrap.sh installs the host
+# packages the build needs and checkout.sh clones/updates Library/Sources.
+# Both are re-run on every "make install" so an existing tree is brought up to
+# date rather than built as it was left, and the install itself always runs —
+# reinstalling over an existing /System is how a rebuild is deployed.
+bootstrap: check_root
+	@sh ./Library/Scripts/bootstrap.sh
+
+checkout: check_root
+	@sh ./Library/Scripts/checkout.sh
+
+system: check_root bootstrap checkout
+	@echo "Installing GNUstep System Domain..."
+	@FROM_MAKEFILE=1 sh ./Library/Scripts/install-system-domain.sh all
 
 # Granular build targets. Each builds a single component from
 # Library/Sources, assuming the core libraries are already installed

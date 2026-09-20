@@ -23,13 +23,16 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 After installing, configuring the above requirements run the following commands as root:
 
 ```
-#  Get the rest of the requirements for building
 git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
-/Developer/Library/Scripts/bootstrap.sh
-/Developer/Library/Scripts/checkout.sh
 # Build and install Gershwin from sources
 cd /Developer && make install
 ```
+
+`make install` runs `bootstrap.sh` (installs the host packages the build needs)
+and `checkout.sh` (clones/updates the sources under `Library/Sources`) itself,
+every time, so re-running it picks up upstream changes and reinstalls over an
+existing `/System`. The two scripts can still be run on their own — as
+`make bootstrap` / `make checkout`, or directly — when only that step is wanted.
 
 To remove Gershwin installed from sources run the following as root:
 
@@ -68,11 +71,12 @@ service loginwindow enable && service loginwindow start
 
 ## Build targets
 
-`make install` builds and installs the entire system domain. The build is also
-split into granular targets so a single component can be (re)built on its own —
-useful for CI and incremental development. Every per-component target requires
-the core libraries to be installed first (`make corelibs`). All targets run as
-root, like `make install`.
+`make install` refreshes the sources and then builds and installs the entire
+system domain; it runs every time, with no "already installed" short-circuit.
+The build is also split into granular targets so a single component can be
+(re)built on its own — useful for CI and incremental development. Every
+per-component target requires the core libraries to be installed first
+(`make corelibs`). All targets run as root, like `make install`.
 
 | Target | Builds |
 | --- | --- |
