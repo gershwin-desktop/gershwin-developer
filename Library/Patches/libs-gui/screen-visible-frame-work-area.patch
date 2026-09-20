@@ -11,7 +11,7 @@ index 07973f087..dd53c486e 100644
  - (const NSWindowDepth *) availableDepthsForScreen: (int)screen;
  - (NSArray *) screenList;
 diff --git a/Source/GSDisplayServer.m b/Source/GSDisplayServer.m
-index e5f494273..f6cc88fcc 100644
+index e5f494273..e8eba3b0c 100644
 --- a/Source/GSDisplayServer.m
 +++ b/Source/GSDisplayServer.m
 @@ -430,6 +430,16 @@ GSCurrentServer(void)
@@ -32,27 +32,52 @@ index e5f494273..f6cc88fcc 100644
  - (NSWindowDepth) windowDepthForScreen: (int)screen
  {
 diff --git a/Source/NSScreen.m b/Source/NSScreen.m
-index 77850e7ba..6e2ce137b 100644
+index 77850e7ba..5a2c0fec0 100644
 --- a/Source/NSScreen.m
 +++ b/Source/NSScreen.m
-@@ -345,12 +345,20 @@ static NSMutableArray *screenArray = nil;
+@@ -345,12 +345,32 @@ static NSMutableArray *screenArray = nil;
  
  /**
   * Returns the NSRect representing the visible area of the screen.
-+ * This accounts for the WM-reserved work area and the GNUstep menu bar.
++ * This accounts for the WM-reserved work area and the GNUstep menu bar,
++ * counting a strip that both of them reserve only once.
   */
  - (NSRect) visibleFrame
  {
    NSRect visFrame = _frame;
++  /* What the display server leaves to application windows; an empty rect
++   * when it knows of none, in which case the whole screen is the starting
++   * point as before. */
++  NSRect workArea = [GSCurrentServer() workAreaForScreen: _screenNumber];
++  float reservedAtTop = 0.0;
    float menuHeight;
  
-+  /* Start with the WM work area if available; fall back to the full frame. */
-+  NSRect workArea = [GSCurrentServer() workAreaForScreen: _screenNumber];
 +  if (!NSIsEmptyRect(workArea))
 +    {
++      /* A menu bar that reserves its own strip with the window manager is
++       * already outside the work area, so only what is left of its height
++       * may be taken off again below. */
++      reservedAtTop = NSMaxY(_frame) - NSMaxY(workArea);
++      if (reservedAtTop < 0.0)
++        {
++          reservedAtTop = 0.0;
++        }
 +      visFrame = workArea;
 +    }
 +
    switch (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil))
      {
        case NSMacintoshInterfaceStyle:
+@@ -364,7 +384,11 @@ static NSMutableArray *screenArray = nil;
+             menuHeight = [[[NSApp mainMenu] window] frame].size.height;
+           }
+         
+-        visFrame.size.height -= menuHeight;
++        menuHeight -= reservedAtTop;
++        if (menuHeight > 0.0)
++          {
++            visFrame.size.height -= menuHeight;
++          }
+         break;
+ 
+       case GSWindowMakerInterfaceStyle:
