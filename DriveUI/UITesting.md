@@ -241,6 +241,15 @@ step on a non-zero exit.
 shell "rm -rf /tmp/uitest-dnd-${home} && mkdir -p /tmp/uitest-dnd-${home}/Target"
 ```
 
+Two variables are always set: `${home}` is the name of the home folder (the
+title of its window), and `${testdir}` is the folder the script itself lives
+in.  Files that ship with a test are reached through `${testdir}`, never
+through an absolute path, because in CI the checkout is somewhere else.
+
+```text
+shell "/System/Applications/Utilities/Profiler.app/Profiler ${testdir}/Fixtures/example.folded &"
+```
+
 **The global menu bar (Menu.app)**
 
 ```text

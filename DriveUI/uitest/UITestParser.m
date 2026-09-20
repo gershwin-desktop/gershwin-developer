@@ -305,6 +305,17 @@ case DDSRoleLabel:                        return @"NSTextField";
     {
       [[prog variables] setObject: home forKey: @"home"];
     }
+  /* Built-in variable: the folder the script itself lives in, so a script
+   * reaches its own fixtures (e.g. 'shell "app ${testdir}/Fixtures/x.folded"')
+   * wherever the repository is checked out - in CI that is the build agent's
+   * work directory, not /Developer. */
+  NSString *scriptDir = [[path stringByExpandingTildeInPath]
+    stringByDeletingLastPathComponent];
+  if (![scriptDir isAbsolutePath])
+    scriptDir = [[[NSFileManager defaultManager] currentDirectoryPath]
+      stringByAppendingPathComponent: scriptDir];
+  [[prog variables] setObject: [scriptDir stringByStandardizingPath]
+                       forKey: @"testdir"];
   if (![self parseString: text sourceName: path program: prog error: err])
     return nil;
   return prog;
