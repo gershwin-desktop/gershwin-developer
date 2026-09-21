@@ -402,6 +402,19 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
+/* Whole-title match (English or localized spelling), used where a substring
+ * hit would be ambiguous. */
+- (BOOL)title:(NSString *)title isExactly:(NSString *)segOrEnglish
+{
+  if (title == nil)
+    return NO;
+  if ([title caseInsensitiveCompare: segOrEnglish] == NSOrderedSame)
+    return YES;
+  NSString *localized = [self localizeString: segOrEnglish];
+  return ![localized isEqualToString: segOrEnglish]
+    && [title caseInsensitiveCompare: localized] == NSOrderedSame;
+}
+
 - (BOOL)activateXWindow:(NSString *)title error:(NSString **)err
 {
   if (title == nil || [title length] == 0)
@@ -896,6 +909,25 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   return NULL;
 }
 
+/* The child of `node` that a path segment names.  A menu bar carries both
+ * "Process" and "Processes", so a substring hit alone would hand back whichever
+ * comes first and the rest of the path would be searched in the wrong menu;
+ * the item that carries the whole title therefore wins. */
+- (DDSMenuNode *)childOf:(DDSMenuNode *)node matchingSegment:(NSString *)seg
+{
+  DDSMenuNode *substringMatch = NULL;
+
+  for (int i = 0; i < node->nkids; i++)
+    {
+      DDSMenuNode *kid = node->kids[i];
+      if ([self title: kid->title isExactly: seg])
+        return kid;
+      if (substringMatch == NULL && [self title: kid->title matches: seg])
+        substringMatch = kid;
+    }
+  return substringMatch;
+}
+
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
@@ -913,13 +945,7 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   for (NSString *seg in segs)
     {
       if ([seg length] == 0) continue;
-      DDSMenuNode *match = NULL;
-      for (int i = 0; i < current->nkids; i++)
-        {
-          DDSMenuNode *k = current->kids[i];
-          if ([self title: k->title matches: seg])
-            { match = k; break; }
-        }
+      DDSMenuNode *match = [self childOf: current matchingSegment: seg];
       if (match == NULL) { found = NO; break; }
       [indices addObject: @(match->index)];
       current = match;
@@ -972,13 +998,7 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   for (NSString *seg in segs)
     {
       if ([seg length] == 0) continue;
-      DDSMenuNode *match = NULL;
-      for (int i = 0; i < current->nkids; i++)
-        {
-          DDSMenuNode *k = current->kids[i];
-          if ([self title: k->title matches: seg])
-            { match = k; break; }
-        }
+      DDSMenuNode *match = [self childOf: current matchingSegment: seg];
       if (match == NULL) { found = NO; break; }
       current = match;
     }
