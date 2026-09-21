@@ -114,6 +114,12 @@
 // effect, instead of assuming the WM honoured it.
 + (BOOL)isWindowActive:(unsigned long)xid;
 
+/* The X windows of one process and the subwindows inside them, with absolute
+ * geometry.  A subwindow (e.g. the one an OpenGL view draws into) that lies
+ * over a control takes the clicks aimed at that control, and nothing in the
+ * widget tree shows it, so a failing test has to be able to print this. */
++ (NSString *)windowTreeDescriptionForPID:(int)pid;
+
 // Resolve the absolute path of an executable by name from the PATH
 // environment variable.  System helper tools (xdotool, ffmpeg, ...) live at
 // different paths per OS, so callers must not hardcode them; pass the bare

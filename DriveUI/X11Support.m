@@ -610,6 +610,48 @@ static void SendKey(Display *d, Window w, KeyCode code,
     [self setButton: 1 pressed: NO];
 }
 
+static void DescribeWindowTree(Display *d, Window w, int depth,
+                               NSMutableString *out)
+{
+    XWindowAttributes attrs;
+
+    if (depth > 4 || !XGetWindowAttributes(d, w, &attrs)) {
+        return;
+    }
+    int absX = 0, absY = 0;
+    Window ignored;
+    XTranslateCoordinates(d, w, DefaultRootWindow(d), 0, 0, &absX, &absY,
+                          &ignored);
+    char *name = NULL;
+    XFetchName(d, w, &name);
+    [out appendFormat: @"  %*s0x%lx %dx%d+%d+%d %s %s\n", depth * 2, "",
+      (unsigned long)w, attrs.width, attrs.height, absX, absY,
+      (attrs.map_state == IsViewable) ? "viewable" : "unmapped",
+      name ? name : ""];
+    if (name) XFree(name);
+
+    Window root, parent, *kids = NULL;
+    unsigned int nkids = 0;
+    if (XQueryTree(d, w, &root, &parent, &kids, &nkids)) {
+        for (unsigned int i = 0; i < nkids; i++)
+            DescribeWindowTree(d, kids[i], depth + 1, out);
+        if (kids) XFree(kids);
+    }
+}
+
++ (NSString *)windowTreeDescriptionForPID:(int)pid {
+    Display *d = [self display];
+    if (!d) return @"";
+    NSMutableString *out = [NSMutableString string];
+    for (NSNumber *wid in [self windowList]) {
+        NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
+        if (info == nil) continue;
+        if ([[info objectForKey: @"pid"] intValue] != pid) continue;
+        DescribeWindowTree(d, (Window)[wid unsignedLongValue], 0, out);
+    }
+    return out;
+}
+
 + (NSPoint)pointerLocation {
     Display *d = [self display];
     if (!d) return NSZeroPoint;

@@ -14,6 +14,8 @@
  */
 
 #import "UITest.h"
+#import "../DriveUITreeFormat.h"
+#import "../X11Support.h"
 
 @implementation UITestExecutor
 
@@ -839,9 +841,52 @@ static NSString *CommandName(UITestCommandType t)
   return 0;
 }
 
+/* What the application showed when the script stopped.  A click that missed,
+ * a button that was disabled or a drag that never started leaves no other
+ * trace, and on a CI machine the log is all there is to read afterwards. */
+- (void)logVisibleWidgets
+{
+  NSString *tree = [engine_ widgetTreeText];
+
+  if (tree == nil)
+    {
+      fprintf(stderr, "[uitest] no widget tree (the application is gone)\n");
+      return;
+    }
+  fprintf(stderr, "[uitest] visible widgets when the script stopped:\n");
+  int printed = 0;
+  for (NSArray *f in DriveUIParseTree(tree))
+    {
+      if ([f count] < 9) continue;
+      if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;
+      /* Rows without text (scrollers, clip views, table rows of a long list)
+       * say nothing about why a step failed and would bury what does. */
+      if ([[f objectAtIndex: 2] length] == 0) continue;
+      if (printed++ >= 200)
+        {
+          fprintf(stderr, "  ...\n");
+          break;
+        }
+      fprintf(stderr, "  %s\t%s\tenabled=%s\t%s\t%s\n",
+        [[f objectAtIndex: 1] UTF8String], [[f objectAtIndex: 2] UTF8String],
+        [[f objectAtIndex: 7] UTF8String], [[f objectAtIndex: 5] UTF8String],
+        [[f objectAtIndex: 9] UTF8String]);
+    }
+
+  /* Where the application's X windows really are: a subwindow over a control
+   * (an OpenGL view draws into one) takes the clicks meant for it, and the
+   * widget tree above would still show the control as visible and enabled. */
+  NSString *xwindows = [X11Support windowTreeDescriptionForPID: [engine_ pid]];
+  if ([xwindows length] > 0)
+    fprintf(stderr, "[uitest] X windows of the application:\n%s",
+      [xwindows UTF8String]);
+}
+
 - (int)run
 {
   int rc = [self runSequence: program_.commands applyPolicy: YES];
+  if (rc != 0)
+    [self logVisibleWidgets];
   /* A script that stops between grab and release would leave the button
    * down in the X server, turning every later click into a drag. */
   if (pointerGrabbed_)
