@@ -873,6 +873,27 @@ static NSString *CommandName(UITestCommandType t)
         [[f objectAtIndex: 9] UTF8String]);
     }
 
+  /* What the application itself said.  A script that starts an application
+   * with its output redirected into UITEST_LOG_DIR (/tmp/uitest-logs by
+   * default) gets those lines here, which is the only way to see a message
+   * such as "cannot open the audio device" from a build machine. */
+  NSString *logDir = [[[NSProcessInfo processInfo] environment]
+    objectForKey: @"UITEST_LOG_DIR"] ?: @"/tmp/uitest-logs";
+  NSFileManager *fm = [NSFileManager defaultManager];
+  for (NSString *name in [[fm contentsOfDirectoryAtPath: logDir error: NULL]
+                           sortedArrayUsingSelector: @selector(compare:)])
+    {
+      NSString *path = [logDir stringByAppendingPathComponent: name];
+      NSString *text = [NSString stringWithContentsOfFile: path
+        encoding: NSUTF8StringEncoding error: NULL];
+      if ([text length] == 0) continue;
+      NSArray *lines = [text componentsSeparatedByString: @"\n"];
+      NSUInteger from = ([lines count] > 40) ? [lines count] - 40 : 0;
+      fprintf(stderr, "[uitest] last lines of %s:\n", [path UTF8String]);
+      for (NSUInteger i = from; i < [lines count]; i++)
+        fprintf(stderr, "  %s\n", [[lines objectAtIndex: i] UTF8String]);
+    }
+
   /* Where the application's X windows really are: a subwindow over a control
    * (an OpenGL view draws into one) takes the clicks meant for it, and the
    * widget tree above would still show the control as visible and enabled. */
