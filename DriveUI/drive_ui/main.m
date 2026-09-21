@@ -1746,6 +1746,20 @@ int main(int argc, const char *argv[])
 
       [X11Support simulateMouseMoveTo: c];
       usleep(50000);  /* let the pointer motion settle */
+
+      /* X delivers the press to whatever window lies under the pointer.  A
+       * control covered by the Dock, a panel or another application's window
+       * never sees the click, and the test that follows would only report
+       * that nothing happened. */
+      int owner = [X11Support pidOwningWindowAtPoint: c];
+      if (owner > 0 && owner != pid)
+        {
+          fprintf(stderr, "drive_ui: %s: another window (pid %d) covers the "
+                  "widget at %.0f,%.0f\n", [command UTF8String], owner, c.x, c.y);
+          [pool release];
+          return 1;
+        }
+
       for (int i = 0; i < count; i++)
         {
           [X11Support simulateClick: button];
@@ -2047,6 +2061,22 @@ int main(int argc, const char *argv[])
 
       [X11Support simulateMouseMoveTo: from];
       usleep(40000);
+
+      /* Both ends must really belong to this application: a press on a window
+       * that lies over the source starts no drag, and a release over a
+       * covering window drops the file on that window instead. */
+      int fromOwner = [X11Support pidOwningWindowAtPoint: from];
+      int toOwner = [X11Support pidOwningWindowAtPoint: to];
+      if ((fromOwner > 0 && fromOwner != pid) || (toOwner > 0 && toOwner != pid))
+        {
+          fprintf(stderr, "drive_ui: drag_onto: another window covers the "
+                  "%s (pid %d)\n",
+                  (fromOwner > 0 && fromOwner != pid) ? "source" : "destination",
+                  (fromOwner > 0 && fromOwner != pid) ? fromOwner : toOwner);
+          [pool release];
+          return 1;
+        }
+
       [X11Support simulateDragBy: NSMakePoint(to.x - from.x, to.y - from.y)
                        holdAtEnd: hold];
     }

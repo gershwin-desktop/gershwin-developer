@@ -120,6 +120,12 @@
  * widget tree shows it, so a failing test has to be able to print this. */
 + (NSString *)windowTreeDescriptionForPID:(int)pid;
 
+/* The process owning the window under a screen point, or 0 when it cannot be
+ * told.  X delivers a click to whatever window lies under the pointer, so a
+ * control whose centre belongs to another process (the Dock over a window,
+ * a panel of another application) cannot be clicked at all. */
++ (int)pidOwningWindowAtPoint:(NSPoint)point;
+
 // Resolve the absolute path of an executable by name from the PATH
 // environment variable.  System helper tools (xdotool, ffmpeg, ...) live at
 // different paths per OS, so callers must not hardcode them; pass the bare

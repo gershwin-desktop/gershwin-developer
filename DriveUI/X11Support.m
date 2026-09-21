@@ -652,6 +652,46 @@ static void DescribeWindowTree(Display *d, Window w, int depth,
     return out;
 }
 
++ (int)pidOwningWindowAtPoint:(NSPoint)point {
+    Display *d = [self display];
+    if (!d) return 0;
+
+    Window root = DefaultRootWindow(d);
+    Window win = root, child = None, r = None;
+    int rx = 0, ry = 0, wx = 0, wy = 0;
+    unsigned int mask = 0;
+
+    /* Descend to the deepest window that contains the point, the one X would
+     * deliver a button press to. */
+    while (XQueryPointer(d, win, &r, &child, &rx, &ry, &wx, &wy, &mask)
+           && child != None) {
+        win = child;
+    }
+    /* The window manager reparents a client into a frame of its own; only one
+     * window of the chain carries _NET_WM_PID, so walk up until it is found. */
+    Atom atomPID = XInternAtom(d, "_NET_WM_PID", True);
+    if (atomPID == None) return 0;
+    for (int up = 0; up < 8 && win != None && win != root; up++) {
+        Atom type = None;
+        int format = 0;
+        unsigned long items = 0, after = 0;
+        unsigned char *prop = NULL;
+        if (XGetWindowProperty(d, win, atomPID, 0, 1, False, XA_CARDINAL,
+                               &type, &format, &items, &after, &prop) == Success
+            && prop != NULL) {
+            int pid = (int)(*(unsigned long *)prop);
+            XFree(prop);
+            if (pid > 0) return pid;
+        }
+        Window parent = None, qroot = None, *kids = NULL;
+        unsigned int nkids = 0;
+        if (!XQueryTree(d, win, &qroot, &parent, &kids, &nkids)) break;
+        if (kids) XFree(kids);
+        win = parent;
+    }
+    return 0;
+}
+
 + (NSPoint)pointerLocation {
     Display *d = [self display];
     if (!d) return NSZeroPoint;
