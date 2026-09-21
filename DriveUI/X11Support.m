@@ -599,8 +599,23 @@ static void SendKey(Display *d, Window w, KeyCode code,
     if (![self setButton: 1 pressed: YES]) return;
     usleep(kPressHoldMicroseconds);
 
-    [self movePointerTo: NSMakePoint(start.x + delta.x, start.y + delta.y)
-                  steps: 12];
+    NSPoint end = NSMakePoint(start.x + delta.x, start.y + delta.y);
+    [self movePointerTo: end steps: 12];
+
+    /* The drop is decided by the last position the application saw, not by
+     * where the pointer really is.  A busy application can still be working
+     * through earlier motion when the button comes up, and it then concludes
+     * the drag somewhere on the way - a file dropped on a folder icon was
+     * taken as a drop on the window behind it, which moves the icon instead
+     * of asking to move the file.  A few late motions a pixel apart give it
+     * fresh events at the destination to catch up with. */
+    for (int i = 0; i < 3; i++) {
+        [self movePointerTo: NSMakePoint(end.x + ((i % 2) ? 1 : -1), end.y)
+                      steps: 1];
+        usleep(50000);
+        [self movePointerTo: end steps: 1];
+        usleep(50000);
+    }
 
     /* Let the application act on the last position before the button comes
      * up: where the pointer was at the release is what decides the drop. */

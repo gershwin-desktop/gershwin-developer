@@ -2045,6 +2045,16 @@ int main(int argc, const char *argv[])
 
       NSPoint from = CenterOfRow(srcRow);
       NSPoint to = CenterOfRow(dstRow);
+      /* Two widgets in the same place mean the last drag left the source
+       * sitting on the destination; dragging one onto the other would be a
+       * gesture that goes nowhere and reports nothing. */
+      if (from.x == to.x && from.y == to.y)
+        {
+          fprintf(stderr, "drive_ui: drag_onto: source and destination are at "
+                  "the same position (%.0f,%.0f)\n", from.x, from.y);
+          [pool release];
+          return 1;
+        }
       if ((from.x == 0 && from.y == 0) || (to.x == 0 && to.y == 0))
         {
           fprintf(stderr, "drive_ui: drag_onto: widget has no usable screen_frame\n");

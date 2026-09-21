@@ -350,6 +350,7 @@ typedef enum
   NSMutableDictionary *macros_; /* macro name -> body (built before running) */
   NSMutableDictionary *frameRefs_; /* window title -> first observed frame */
   BOOL pointerGrabbed_;   /* a `grab` is not yet followed by `release pointer` */
+  NSDate *startedAt_;     /* when the script started; older logs are not ours */
 }
 - (id)initWithProgram:(UITestProgram *)program engine:(UITestQueryEngine *)engine;
 - (int)run;

@@ -846,6 +846,8 @@ static NSString *CommandName(UITestCommandType t)
  * trace, and on a CI machine the log is all there is to read afterwards. */
 - (void)logVisibleWidgets
 {
+  NSDate *scriptStart = startedAt_ ?: [NSDate distantPast];
+
   NSString *tree = [engine_ widgetTreeText];
 
   if (tree == nil)
@@ -884,6 +886,11 @@ static NSString *CommandName(UITestCommandType t)
                            sortedArrayUsingSelector: @selector(compare:)])
     {
       NSString *path = [logDir stringByAppendingPathComponent: name];
+      /* A log another script left behind says nothing about this failure. */
+      NSDate *written = [[fm attributesOfItemAtPath: path error: NULL]
+        objectForKey: NSFileModificationDate];
+      if (written != nil && [written compare: scriptStart] == NSOrderedAscending)
+        continue;
       NSString *text = [NSString stringWithContentsOfFile: path
         encoding: NSUTF8StringEncoding error: NULL];
       if ([text length] == 0) continue;
@@ -905,6 +912,7 @@ static NSString *CommandName(UITestCommandType t)
 
 - (int)run
 {
+  startedAt_ = [[NSDate date] retain];
   int rc = [self runSequence: program_.commands applyPolicy: YES];
   if (rc != 0)
     [self logVisibleWidgets];
