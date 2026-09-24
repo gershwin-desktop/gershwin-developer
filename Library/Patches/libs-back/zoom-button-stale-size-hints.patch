@@ -1,0 +1,23 @@
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -2409,6 +2409,19 @@
+       window->siz_hints.width = NSWidth(h);
+       window->siz_hints.height = NSHeight(h);
+
++      /* setNormalHints() may already have run against whatever style this
++       * window had before -stylewindow:: gave it its real, final one - if
++       * that earlier style was non-resizable, it clamped the X server's
++       * published min/max size hints to the window's size at that moment
++       * (a workaround some window managers need) and never got a chance to
++       * un-clamp them once the true style arrived here. Without this call,
++       * a window that is really resizable can permanently keep min=max
++       * hints from that stale moment, which a window manager reads as
++       * "fixed size" and hides the zoom button for - reproduced via
++       * window_decorations.uitest asserting on gershwin-windowmanager's
++       * published titlebar-button rects. */
++      setNormalHints(dpy, window);
++
+       // send to the WM window style hints
+ /* Warning ... X-bug .. when we specify 32bit data X actually expects data
+  * of type 'long' or 'unsigned long' even on machines where those types
