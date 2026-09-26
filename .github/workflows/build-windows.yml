@@ -74,6 +74,11 @@ jobs:
       - name: Build workspace
         run: make workspace
 
+      # Copy the MinGW runtime DLLs and a fontconfig setup into /System and
+      # add the Workspace.cmd launcher, so the zip runs on a stock Windows.
+      - name: Bundle the runtime
+        run: sh ./Library/Scripts/windows-bundle-runtime.sh
+
       - name: Package
         run: |
           mkdir -p artifacts/Windows/x86_64
