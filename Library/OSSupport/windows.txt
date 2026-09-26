@@ -15,6 +15,7 @@ autoconf
 automake
 libtool
 zip
+unzip
 
 # Toolchain: clang + lld. The gnustep-2.x Objective-C ABI needs lld (or gold),
 # which is why the build is a clang toolchain end to end, as on the other OSes.
