@@ -1,0 +1,59 @@
+--- a/Source/NSUnarchiver.m
++++ b/Source/NSUnarchiver.m
+@@ -1216,6 +1216,56 @@
+ 	   loosen the type checking a little */
+ 	if (*type != type_map[_GSC_CHR] && *type != type_map[_GSC_UCHR])
+ 	  {
++	    /* A BOOL is a char on most platforms but an int on Windows (it
++	     * has to match the Win32 BOOL), so an archive written elsewhere,
++	     * a .gorm file say, holds one byte where this platform asks for
++	     * an integer.  Read the byte and widen it.
++	     */
++	    switch (*type)
++	      {
++		case _C_SHT: case _C_USHT:
++		case _C_INT: case _C_UINT:
++		case _C_LNG: case _C_ULNG:
++		case _C_LNG_LNG: case _C_ULNG_LNG:
++		  {
++		    long long	v;
++
++		    if ((info & _GSC_MASK) == _GSC_CHR)
++		      {
++			signed char	c = 0;
++
++			(*desImp)(src, desSel, &c, @encode(signed char),
++			  &cursor, nil);
++			v = c;
++		      }
++		    else
++		      {
++			unsigned char	c = 0;
++
++			(*desImp)(src, desSel, &c, @encode(unsigned char),
++			  &cursor, nil);
++			v = c;
++		      }
++		    switch (*type)
++		      {
++			case _C_SHT: *(short*)address = (short)v; break;
++			case _C_USHT: *(unsigned short*)address
++			  = (unsigned short)v; break;
++			case _C_INT: *(int*)address = (int)v; break;
++			case _C_UINT: *(unsigned int*)address
++			  = (unsigned int)v; break;
++			case _C_LNG: *(long*)address = (long)v; break;
++			case _C_ULNG: *(unsigned long*)address
++			  = (unsigned long)v; break;
++			case _C_LNG_LNG: *(long long*)address = v; break;
++			default: *(unsigned long long*)address
++			  = (unsigned long long)v; break;
++		      }
++		    return;
++		  }
++		default:
++		  break;
++	      }
+ 	    [NSException raise: NSInternalInconsistencyException
+ 		        format: @"expected %s and got %s",
+ 		    typeToName1(*type), typeToName2(info)];

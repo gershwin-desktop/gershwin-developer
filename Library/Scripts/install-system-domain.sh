@@ -360,6 +360,38 @@ install_libsbase() {
   cd "$REPOS_DIR/libs-base"
   $MAKE_CMD install
   $MAKE_CMD clean
+  if [ "$WINDOWS" -eq 1 ]; then
+    write_windows_runtime_config
+  fi
+}
+
+# On Windows gnustep-base reads its configuration from GNUstep.conf next to
+# its own DLL (in Library/Tools) and resolves "./" and "../" entries relative
+# to that file, so this one file makes the whole /System tree self-locating
+# wherever it is unpacked. Without it the layout gnustep-base compiled in
+# is used, and that spells the tools and library directories as bare "." and
+# "..", which it does not resolve - the System domain then collapses to the
+# current directory. The Preferences/GNUstep.conf written by tools-make has
+# the absolute MSYS2 paths and is only used by the build.
+write_windows_runtime_config() {
+  cat > /System/Library/Tools/GNUstep.conf <<'EOF_CONF'
+# Gershwin on Windows: runtime configuration for gnustep-base, relative to
+# this file. See gershwin-developer's install-system-domain.sh.
+GNUSTEP_MAKEFILES=../Makefiles
+GNUSTEP_USER_DEFAULTS_DIR=Library/Preferences
+GNUSTEP_USER_CONFIG_FILE=Library/Preferences/GNUstep.conf
+GNUSTEP_SYSTEM_APPS=../../Applications
+GNUSTEP_SYSTEM_ADMIN_APPS=../../Applications/Admin
+GNUSTEP_SYSTEM_WEB_APPS=../WebApplications
+GNUSTEP_SYSTEM_TOOLS=./
+GNUSTEP_SYSTEM_ADMIN_TOOLS=./Admin
+GNUSTEP_SYSTEM_LIBRARY=../
+GNUSTEP_SYSTEM_HEADERS=../Headers
+GNUSTEP_SYSTEM_LIBRARIES=../Libraries
+GNUSTEP_SYSTEM_DOC=../Documentation
+GNUSTEP_SYSTEM_DOC_MAN=../Documentation/man
+GNUSTEP_SYSTEM_DOC_INFO=../Documentation/info
+EOF_CONF
 }
 
 build_libsgui() {
