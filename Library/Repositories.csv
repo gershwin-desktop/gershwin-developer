@@ -1,0 +1,44 @@
+# Single source of truth for which repositories gershwin-developer checks
+# out, in which order, which upstream libraries are pinned (and to which
+# commit), and which repositories require a restart of the desktop session
+# after being rebuilt.
+#
+# Read by Library/Scripts/checkout.sh (plain awk/cut, no GNUstep tool, so
+# this file stays readable before GNUstep itself is built) and by Software
+# Update (gershwin-components/SoftwareUpdate). CSV, not a plist: every field
+# here is a bare name, URL or sha, so a comma never needs quoting on either
+# side of the parser.
+#
+# Columns:
+#   Name             - also the argument to checkout.sh/patch.sh and to
+#                       install-system-domain.sh's build-repo/install-repo.
+#   URL              - git remote to clone from.
+#   Pin              - commit sha; only upstream (non-Gershwin) libraries are
+#                       pinned. Empty means "follows its branch".
+#   RestartRequired  - YES for repositories that cannot be hot-swapped under
+#                       the running session (core libraries and the window
+#                       server). Empty means NO.
+#
+# Patches for a repository live in Library/Patches/<Name>/*.patch regardless
+# of what is recorded here.
+Name,URL,Pin,RestartRequired
+gershwin-developer,https://github.com/gershwin-desktop/gershwin-developer.git,,
+swift-corelibs-libdispatch,https://github.com/apple/swift-corelibs-libdispatch.git,95f592a,
+libobjc2,https://github.com/gnustep/libobjc2.git,c9f4002,
+tools-make,https://github.com/gnustep/tools-make.git,4e31a03,
+libs-base,https://github.com/gnustep/libs-base.git,5bda522,
+libs-gui,https://github.com/gnustep/libs-gui.git,8f804fd,YES
+libs-back,https://github.com/gnustep/libs-back.git,bbcc3de,YES
+libs-av,https://github.com/gnustep/libs-av.git,26566e2,
+libs-steptalk,https://github.com/gnustep/libs-steptalk.git,2b57b46,
+gershwin-system,https://github.com/gershwin-desktop/gershwin-system.git,,YES
+gershwin-systempreferences,https://github.com/gershwin-desktop/gershwin-systempreferences.git,,
+gershwin-workspace,https://github.com/gershwin-desktop/gershwin-workspace.git,,
+gershwin-eau-theme,https://github.com/gershwin-desktop/gershwin-eau-theme.git,,
+gershwin-terminal,https://github.com/gershwin-desktop/gershwin-terminal.git,,
+gershwin-textedit,https://github.com/gershwin-desktop/gershwin-textedit.git,,
+gershwin-windowmanager,https://github.com/gershwin-desktop/gershwin-windowmanager.git,,YES
+gershwin-components,https://github.com/gershwin-desktop/gershwin-components.git,,
+gershwin-assets,https://github.com/gershwin-desktop/gershwin-assets.git,,
+docs,https://github.com/gershwin-desktop/docs.git,,
+gershwin-desktop.wiki,https://github.com/gershwin-desktop/gershwin-desktop.wiki.git,,

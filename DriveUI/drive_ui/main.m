@@ -26,6 +26,12 @@
  *   drive_ui [--pid N] scroll <dir> [n]       (scroll at the current pointer)
  *   drive_ui [--pid N] scroll_into_view <object_id>   (wheel toward a clipped/offscreen widget)
  *   drive_ui [--pid N] drag <object_id> <dx> <dy>   (press + drag by dx,dy)
+ *   drive_ui xwindow_frame <title>             (x y width height of a top-level window)
+ *   drive_ui titlebar_press <title>            (press button 1 on a window's titlebar)
+ *   drive_ui pointer_move <x> <y> | --by <dx> <dy> | --edge left|right|top|bottom
+ *   drive_ui pointer_release                   (release button 1)
+ *   drive_ui titlebar_buttons <title>          (name x y width height of each titlebar button)
+ *   drive_ui titlebar_click <title> close|minimize|zoom
  *   drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C] [--window W] [--index N]
  *   drive_ui [--pid N] sendkeys <text>          (type into the focused field)
  *   drive_ui [--pid N] clear <object_id> | --text <label> [--class C] [--window W] [--index N]
@@ -620,6 +626,7 @@ static void Usage(void)
   printf("  drive_ui [--pid N] scroll <dir> [n]           (scroll at pointer)\n");
   printf("  drive_ui [--pid N] scroll_into_view <object_id> (wheel toward a clipped/offscreen widget)\n");
   printf("  drive_ui [--pid N] drag <object_id> <dx> <dy> (press + drag by dx,dy)\n");
+  printf("  drive_ui [--pid N] drag_onto <src_object_id> <dst_object_id> [--hold ms] (drop one widget on another)\n");
   printf("  drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C] [--window W] [--index N]\n");
   printf("  drive_ui [--pid N] sendkeys <text>          (type into focused field)\n");
   printf("  drive_ui [--pid N] clear <object_id> | --text <label> [--class C] [--window W] [--index N]\n");
@@ -627,6 +634,7 @@ static void Usage(void)
   printf("  drive_ui [--pid N] get <object_id> | --text <label> [--class C] [--window W] [--index N]\n");
   printf("  drive_ui [--pid N] get_many <object_id> ...    (text of several widgets, one per line)\n");
   printf("  drive_ui [--pid N] app                       (read-only: app name)\n");
+  printf("  drive_ui [--pid N] activate                  (bring the app's front window forward, no click)\n");
   printf("  drive_ui [--pid N] props <object_id>          (read-only: props)\n");
   printf("  drive_ui [--pid N] parents <object_id>         (read-only: view/window ancestry)\n");
   printf("  drive_ui [--pid N] diagnose [--class C] [--text T] [--tag N] [--window W] [--index N]\n");
@@ -918,6 +926,200 @@ int main(int argc, const char *argv[])
           return 1;
         }
       printf("%lu\n", (unsigned long)[X11Support countWindowsWithTitle: title]);
+    }
+  else if ([command isEqualToString: @"xwindow_frame"])
+    {
+      /* xwindow_frame <title> - print "x y width height" of the first
+       * viewable top-level window whose name contains <title>, in root
+       * coordinates (origin top-left).  For a decorated window that is the
+       * window manager's frame, titlebar included. */
+      NSString *title = ([args count] > 1) ? [args objectAtIndex: 1] : nil;
+      unsigned long wid = [X11Support findViewableWindowWithTitle: title];
+      int x, y, w, h;
+      if (wid == 0 || ![X11Support geometryOfWindow: wid x: &x y: &y width: &w height: &h])
+        {
+          fprintf(stderr, "drive_ui: xwindow_frame: no window '%s'\n",
+                  title ? [title UTF8String] : "");
+          [pool release];
+          return 1;
+        }
+      printf("%d %d %d %d\n", x, y, w, h);
+    }
+  else if ([command isEqualToString: @"titlebar_press"])
+    {
+      /* titlebar_press <title> - press button 1 in the middle of the
+       * titlebar the window manager draws for an application window, and
+       * keep it down: pointer_move then drags the window, pointer_release
+       * drops it.  Window decorations belong to no application, so they have
+       * no widget tree to resolve them in. */
+      NSString *title = ([args count] > 1) ? [args objectAtIndex: 1] : nil;
+      unsigned long wid = [X11Support findWindowWithTitle: title];
+      NSPoint p;
+      if (wid == 0 || ![X11Support titlebarPointOfWindow: wid point: &p])
+        {
+          fprintf(stderr, "drive_ui: titlebar_press: no decorated window '%s'\n",
+                  title ? [title UTF8String] : "");
+          [pool release];
+          return 1;
+        }
+      [X11Support simulateMouseMoveTo: p];
+      [X11Support movePointerTo: p steps: 1];
+      usleep(40000);
+      if (![X11Support setButton: 1 pressed: YES])
+        {
+          [pool release];
+          return 1;
+        }
+    }
+  else if ([command isEqualToString: @"pointer_move"])
+    {
+      /* pointer_move <x> <y> | --by <dx> <dy> | --edge left|right|top|bottom
+       * Move the pointer there in even steps; with a button held down this is
+       * a drag.  An edge keeps the other coordinate, so a window dragged to
+       * the left edge arrives at the height it was grabbed at. */
+      NSPoint from = [X11Support pointerLocation];
+      NSPoint to = from;
+      NSString *a1 = ([args count] > 1) ? [args objectAtIndex: 1] : @"";
+      if ([a1 isEqualToString: @"--edge"] && [args count] > 2)
+        {
+          NSString *edge = [args objectAtIndex: 2];
+          if ([edge isEqualToString: @"left"]) to.x = 0;
+          else if ([edge isEqualToString: @"right"]) to.x = [X11Support screenWidth] - 1;
+          else if ([edge isEqualToString: @"top"]) to.y = 0;
+          else if ([edge isEqualToString: @"bottom"]) to.y = [X11Support screenHeight] - 1;
+          else
+            {
+              fprintf(stderr, "drive_ui: pointer_move: unknown edge '%s'\n", [edge UTF8String]);
+              [pool release];
+              return 1;
+            }
+        }
+      else if ([a1 isEqualToString: @"--by"] && [args count] > 3)
+        {
+          to.x += atof([[args objectAtIndex: 2] UTF8String]);
+          to.y += atof([[args objectAtIndex: 3] UTF8String]);
+        }
+      else if ([args count] > 2)
+        {
+          to.x = atof([a1 UTF8String]);
+          to.y = atof([[args objectAtIndex: 2] UTF8String]);
+        }
+      else
+        {
+          fprintf(stderr, "drive_ui: pointer_move needs <x> <y>, --by <dx> <dy> or --edge <edge>\n");
+          [pool release];
+          return 1;
+        }
+      [X11Support movePointerTo: to steps: 12];
+    }
+  else if ([command isEqualToString: @"titlebar_buttons"]
+           || [command isEqualToString: @"titlebar_click"])
+    {
+      /* titlebar_buttons <title> - list the buttons the window manager
+       * draws in the window's titlebar, "name x y width height" per line in
+       * root coordinates.
+       * titlebar_click <title> close|minimize|zoom - click one of them.
+       * The buttons are pixels in the titlebar, not windows; their places
+       * come from the window manager's _WINDOW_TITLEBAR_BUTTONS. */
+      NSString *title = ([args count] > 1) ? [args objectAtIndex: 1] : nil;
+      unsigned long wid = [X11Support findWindowWithTitle: title];
+      NSDictionary *buttons = (wid != 0) ? [X11Support titlebarButtonsOfWindow: wid] : nil;
+      if (buttons == nil)
+        {
+          fprintf(stderr, "drive_ui: %s: no titlebar buttons for window '%s'\n",
+                  [command UTF8String], title ? [title UTF8String] : "");
+          [pool release];
+          return 1;
+        }
+      if ([command isEqualToString: @"titlebar_buttons"])
+        {
+          for (NSString *name in @[ @"close", @"minimize", @"zoom" ])
+            {
+              NSValue *v = [buttons objectForKey: name];
+              if (v == nil) continue;
+              NSRect r = [v rectValue];
+              printf("%s %d %d %d %d\n", [name UTF8String], (int)NSMinX(r), (int)NSMinY(r),
+                     (int)NSWidth(r), (int)NSHeight(r));
+            }
+        }
+      else
+        {
+          NSString *name = ([args count] > 2) ? [args objectAtIndex: 2] : @"";
+          NSValue *v = [buttons objectForKey: name];
+          if (v == nil)
+            {
+              fprintf(stderr, "drive_ui: titlebar_click: window '%s' has no %s button\n",
+                      [title UTF8String], [name UTF8String]);
+              [pool release];
+              return 1;
+            }
+          NSRect r = [v rectValue];
+          NSPoint c = NSMakePoint(NSMidX(r), NSMidY(r));
+          [X11Support simulateMouseMoveTo: c];
+          [X11Support movePointerTo: c steps: 1];
+          usleep(40000);
+          /* XTest, so the window manager's own grab and button handling see
+           * a real click. */
+          if (![X11Support setButton: 1 pressed: YES])
+            {
+              [pool release];
+              return 1;
+            }
+          usleep(40000);
+          [X11Support setButton: 1 pressed: NO];
+        }
+    }
+  else if ([command isEqualToString: @"pointer_release"])
+    {
+      /* pointer_release - let button 1 come up where the pointer is. */
+      if (![X11Support setButton: 1 pressed: NO])
+        {
+          [pool release];
+          return 1;
+        }
+    }
+  else if ([command isEqualToString: @"activate"])
+    {
+      /* Switch to the app the way the window manager does it, by asking it
+       * to activate the app's front window, and wait until the app really
+       * has the keyboard there.  Clicking into the app instead acts on
+       * whatever is under the pointer.  Prints 1 when activated, 0 when the
+       * app has no window that could take the keyboard. */
+      for (int attempt = 0; attempt < 20; attempt++)
+        {
+          NSString *reply = SendCommand(pid, @"front_window");
+          NSArray *f = [[reply stringByTrimmingCharactersInSet:
+                           [NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                          componentsSeparatedByString: @"\t"];
+          if ([f count] != 2)
+            {
+              fprintf(stderr, "drive_ui: activate: no front window reply\n");
+              [pool release];
+              return 1;
+            }
+          unsigned long xid = strtoul([[f objectAtIndex: 0] UTF8String], NULL, 10);
+          if (xid == 0)
+            {
+              printf("0\n");
+              [pool release];
+              return 0;
+            }
+          if ([[f objectAtIndex: 1] isEqualToString: @"1"])
+            {
+              printf("1\n");
+              [pool release];
+              return 0;
+            }
+          /* The window manager applies the request asynchronously; ask
+           * again only after it had time to act, re-reading the front
+           * window in case another one came up meanwhile. */
+          if (attempt % 4 == 0)
+            [X11Support activateWindow: xid];
+          usleep(100000);
+        }
+      fprintf(stderr, "drive_ui: activate: the app did not take the keyboard\n");
+      [pool release];
+      return 1;
     }
   else if ([command isEqualToString: @"xactivate"])
     {
@@ -1544,6 +1746,20 @@ int main(int argc, const char *argv[])
 
       [X11Support simulateMouseMoveTo: c];
       usleep(50000);  /* let the pointer motion settle */
+
+      /* X delivers the press to whatever window lies under the pointer.  A
+       * control covered by the Dock, a panel or another application's window
+       * never sees the click, and the test that follows would only report
+       * that nothing happened. */
+      int owner = [X11Support pidOwningWindowAtPoint: c];
+      if (owner > 0 && owner != pid)
+        {
+          fprintf(stderr, "drive_ui: %s: another window (pid %d) covers the "
+                  "widget at %.0f,%.0f\n", [command UTF8String], owner, c.x, c.y);
+          [pool release];
+          return 1;
+        }
+
       for (int i = 0; i < count; i++)
         {
           [X11Support simulateClick: button];
@@ -1795,6 +2011,84 @@ int main(int argc, const char *argv[])
       [X11Support simulateMouseMoveTo: c];
       usleep(40000);
       [X11Support simulateDragBy: NSMakePoint(dx, dy)];
+    }
+  else if ([command isEqualToString: @"drag_onto"])
+    {
+      /* drag_onto <src_object_id> <dst_object_id> - press at the source
+       * widget and release over the destination, which is the gesture that
+       * drops a file on a folder.  Aiming at the destination's own centre
+       * keeps a test independent of icon size and grid spacing. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] < 2)
+        {
+          fprintf(stderr, "drive_ui: drag_onto needs <src_object_id> <dst_object_id>\n");
+          [pool release];
+          return 1;
+        }
+
+      NSArray *tree = ParseTree(FetchTree(pid));
+      NSArray *srcRow = ResolveRowByID(tree, [positionals objectAtIndex: 0]);
+      NSArray *dstRow = ResolveRowByID(tree, [positionals objectAtIndex: 1]);
+      if (srcRow == nil || dstRow == nil)
+        {
+          fprintf(stderr, "drive_ui: drag_onto: %s widget not found\n",
+                  (srcRow == nil) ? "source" : "destination");
+          [pool release];
+          return 1;
+        }
+
+      NSPoint from = CenterOfRow(srcRow);
+      NSPoint to = CenterOfRow(dstRow);
+      /* Two widgets in the same place mean the last drag left the source
+       * sitting on the destination; dragging one onto the other would be a
+       * gesture that goes nowhere and reports nothing. */
+      if (from.x == to.x && from.y == to.y)
+        {
+          fprintf(stderr, "drive_ui: drag_onto: source and destination are at "
+                  "the same position (%.0f,%.0f)\n", from.x, from.y);
+          [pool release];
+          return 1;
+        }
+      if ((from.x == 0 && from.y == 0) || (to.x == 0 && to.y == 0))
+        {
+          fprintf(stderr, "drive_ui: drag_onto: widget has no usable screen_frame\n");
+          [pool release];
+          return 1;
+        }
+
+      NSTimeInterval hold = 0;
+      for (NSUInteger i = 1; i + 1 < [args count]; i++)
+        {
+          if ([[args objectAtIndex: i] isEqualToString: @"--hold"])
+            hold = atof([[args objectAtIndex: i + 1] UTF8String]) / 1000.0;
+        }
+
+      [X11Support simulateMouseMoveTo: from];
+      usleep(40000);
+
+      /* Both ends must really belong to this application: a press on a window
+       * that lies over the source starts no drag, and a release over a
+       * covering window drops the file on that window instead. */
+      int fromOwner = [X11Support pidOwningWindowAtPoint: from];
+      int toOwner = [X11Support pidOwningWindowAtPoint: to];
+      if ((fromOwner > 0 && fromOwner != pid) || (toOwner > 0 && toOwner != pid))
+        {
+          fprintf(stderr, "drive_ui: drag_onto: another window covers the "
+                  "%s (pid %d)\n",
+                  (fromOwner > 0 && fromOwner != pid) ? "source" : "destination",
+                  (fromOwner > 0 && fromOwner != pid) ? fromOwner : toOwner);
+          [pool release];
+          return 1;
+        }
+
+      [X11Support simulateDragBy: NSMakePoint(to.x - from.x, to.y - from.y)
+                       holdAtEnd: hold];
     }
   else if ([command isEqualToString: @"press"])
     {

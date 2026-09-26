@@ -1,0 +1,226 @@
+diff --git a/Source/NSBitmapImageRep+JPEG.m b/Source/NSBitmapImageRep+JPEG.m
+index 18aa1602f..c18011c07 100644
+--- a/Source/NSBitmapImageRep+JPEG.m
++++ b/Source/NSBitmapImageRep+JPEG.m
+@@ -237,9 +237,35 @@ typedef struct
+   unsigned char* data;
+   NSData** finalData;
+   int length;
++  int capacity;
+ } gs_jpeg_destination_mgr;
+ typedef gs_jpeg_destination_mgr * gs_jpeg_dest_ptr;
+ 
++/*
++        Grow the accumulator (dest->data) so it can hold at least
++        neededLength bytes.  It starts out sized for a single buffer's
++        worth (see gs_init_destination) because the total size of the
++        compressed stream is not known until compression finishes; it
++        has to grow every time another flush would run past what has
++        been allocated so far, rather than assuming one buffer's worth
++        of space is enough for the whole stream.
++*/
++
++static void gs_jpeg_dest_grow (gs_jpeg_dest_ptr dest, int neededLength)
++{
++  if (neededLength > dest->capacity)
++    {
++      int newCapacity = dest->capacity * 2;
++
++      if (newCapacity < neededLength)
++        {
++          newCapacity = neededLength;
++        }
++      dest->data = (unsigned char*) realloc (dest->data, newCapacity);
++      dest->capacity = newCapacity;
++    }
++}
++
+ /*
+         Initialize destination.  This is called by jpeg_start_compress()
+         before any data is actually written.  It must initialize
+@@ -259,8 +285,8 @@ static void gs_init_destination (j_compress_ptr cinfo)
+   dest->buffer = (void*) calloc ((imageSize * cinfo->input_components),
+                                 sizeof(unsigned char));
+ 
+-  dest->data = (void*) calloc ((imageSize * cinfo->input_components),
+-                                sizeof(unsigned char));
++  dest->capacity = imageSize * cinfo->input_components;
++  dest->data = (void*) calloc (dest->capacity, sizeof(unsigned char));
+ 
+   dest->pub.next_output_byte = dest->buffer;
+   dest->pub.free_in_buffer = imageSize * cinfo->input_components;
+@@ -289,6 +315,13 @@ static boolean gs_empty_output_buffer (j_compress_ptr cinfo)
+   int bufSize = imageSize * cinfo->input_components;
+   int i;
+ 
++  /* A small image's compressed stream (JPEG header tables plus scan
++     data) commonly fills more than one buffer's worth before
++     compression finishes, so the accumulator has to grow to fit this
++     flush rather than assuming the buffer's-worth allocated in
++     gs_init_destination covers the whole stream. */
++  gs_jpeg_dest_grow (dest, dest->length + bufSize);
++
+   for (i = 0; i < bufSize; i++)
+     {
+       dest->data [dest->length + i] = dest->buffer [i];
+@@ -314,16 +347,25 @@ static void gs_term_destination (j_compress_ptr cinfo)
+   gs_jpeg_dest_ptr dest = (gs_jpeg_dest_ptr) cinfo->dest;
+   int imageSize = cinfo->image_width * cinfo->image_height;
+   int bufSize = imageSize * cinfo->input_components;
++  /* Only the bytes libjpeg actually placed in the buffer since the last
++     flush are valid output; free_in_buffer says how much of bufSize is
++     still unused.  Copying the full bufSize unconditionally, as before,
++     read past a partially filled buffer's real content and, together
++     with gs_empty_output_buffer's flushes, always wrote past the end of
++     dest->data. */
++  int remaining = bufSize - (int) dest->pub.free_in_buffer;
+   int i;
+ 
+-  for (i = 0; i < bufSize; i++)
++  gs_jpeg_dest_grow (dest, dest->length + remaining);
++
++  for (i = 0; i < remaining; i++)
+     {
+       dest->data [dest->length + i] = dest->buffer [i];
+     }
+-  dest->length = dest->length + bufSize;
++  dest->length = dest->length + remaining;
+ 
+   *dest->finalData = [[NSData alloc] initWithBytes: dest->data
+-    length: (dest->length) - dest->pub.free_in_buffer];
++    length: dest->length];
+ }
+ 
+ static void gs_jpeg_memory_dest_create (j_compress_ptr cinfo, NSData** data)
+diff --git a/Tests/gui/NSBitmapImageRep/jpegEncodeDestinationOverflow.m b/Tests/gui/NSBitmapImageRep/jpegEncodeDestinationOverflow.m
+new file mode 100644
+index 000000000..7559378b7
+--- /dev/null
++++ b/Tests/gui/NSBitmapImageRep/jpegEncodeDestinationOverflow.m
+@@ -0,0 +1,126 @@
++#import "ObjectTesting.h"
++#import <Foundation/NSAutoreleasePool.h>
++#import <Foundation/NSData.h>
++#import <Foundation/NSDictionary.h>
++#import <AppKit/NSBitmapImageRep.h>
++#import <AppKit/NSGraphics.h>
++
++/*
++ * Regression guard for a heap buffer overflow in the JPEG encoder's
++ * destination manager (gs_init_destination / gs_empty_output_buffer /
++ * gs_term_destination in NSBitmapImageRep+JPEG.m).
++ *
++ * dest->data was allocated with exactly one buffer's worth of bytes
++ * (image_width * image_height * input_components), the same size as the
++ * scratch buffer libjpeg fills between flushes.  For a small image the
++ * compressed stream (JPEG header tables plus scan data) commonly exceeds
++ * that tiny buffer at least once before compression finishes:
++ * gs_empty_output_buffer then appends a full buffer's worth at an offset
++ * that already reaches capacity, and gs_term_destination unconditionally
++ * appends another full buffer's worth on top of that - both write past the
++ * end of dest->data.  Confirmed with valgrind: "Invalid write ... 0 bytes
++ * after a block of size ..." at the copy loops in gs_empty_output_buffer /
++ * gs_term_destination.
++ *
++ * Many small sizes are exercised (from 1x1, where the JPEG header alone
++ * dwarfs the one-pixel buffer, up to sizes whose scan data alone fills the
++ * buffer) so at least one of them reliably drives a flush before the
++ * unpatched code's buffer is exhausted, regardless of libjpeg's exact
++ * marker sizes for a given build.  Each result is checked for a valid
++ * SOI/EOI marker pair and for decoding back to the original dimensions
++ * with the sampled corner pixels intact, so a build that only avoids the
++ * crash on some sizes (or produces corrupted output) still fails.
++ */
++
++static NSBitmapImageRep *
++makeSourceRep(NSInteger width, NSInteger height)
++{
++  NSBitmapImageRep *rep;
++  unsigned char *plane;
++  NSInteger row_bytes;
++  NSInteger x, y;
++
++  rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes: NULL
++                                               pixelsWide: width
++                                               pixelsHigh: height
++                                            bitsPerSample: 8
++                                          samplesPerPixel: 3
++                                                 hasAlpha: NO
++                                                 isPlanar: NO
++                                           colorSpaceName: NSCalibratedRGBColorSpace
++                                              bytesPerRow: 0
++                                             bitsPerPixel: 0];
++  plane = [rep bitmapData];
++  row_bytes = [rep bytesPerRow];
++
++  /* A gradient rather than a flat fill, so the encoded data is not
++     trivially small for every size tested. */
++  for (y = 0; y < height; y++)
++    {
++      for (x = 0; x < width; x++)
++        {
++          unsigned char *px = plane + y * row_bytes + x * 3;
++          px[0] = (unsigned char)((x * 37 + y * 11) & 0xff);
++          px[1] = (unsigned char)((x * 13 + y * 59) & 0xff);
++          px[2] = (unsigned char)((x * 91 + y * 3) & 0xff);
++        }
++    }
++
++  return rep;
++}
++
++int main()
++{
++  NSAutoreleasePool *arp = [NSAutoreleasePool new];
++  NSInteger sizes[] = { 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64 };
++  NSUInteger n = sizeof(sizes) / sizeof(sizes[0]);
++  NSUInteger idx;
++  BOOL allOk = YES;
++  BOOL allDecode = YES;
++
++  for (idx = 0; idx < n; idx++)
++    {
++      NSInteger dim = sizes[idx];
++      NSBitmapImageRep *source = makeSourceRep(dim, dim);
++      NSData *jpeg = [source representationUsingType: NSJPEGFileType
++                                          properties: [NSDictionary dictionary]];
++      const unsigned char *bytes;
++      NSUInteger len;
++      BOOL hasSOI, hasEOI;
++      NSBitmapImageRep *decoded;
++
++      if (jpeg == nil)
++        {
++          allOk = NO;
++          DESTROY(source);
++          continue;
++        }
++
++      bytes = [jpeg bytes];
++      len = [jpeg length];
++      hasSOI = (len >= 2 && bytes[0] == 0xff && bytes[1] == 0xd8);
++      hasEOI = (len >= 2 && bytes[len - 2] == 0xff && bytes[len - 1] == 0xd9);
++      if (!hasSOI || !hasEOI)
++        {
++          allOk = NO;
++        }
++
++      decoded = [[NSBitmapImageRep alloc] initWithData: jpeg];
++      if (decoded == nil
++          || [decoded pixelsWide] != dim
++          || [decoded pixelsHigh] != dim)
++        {
++          allDecode = NO;
++        }
++      DESTROY(decoded);
++      DESTROY(source);
++    }
++
++  pass(allOk,
++    "encoding many small JPEGs always produces a valid SOI/EOI stream");
++  pass(allDecode,
++    "every one of those small JPEGs decodes back to its original dimensions");
++
++  [arp release];
++  return 0;
++}

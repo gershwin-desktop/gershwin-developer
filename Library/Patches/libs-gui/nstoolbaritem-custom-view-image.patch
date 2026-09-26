@@ -1,0 +1,18 @@
+diff --git a/Source/NSToolbarItem.m b/Source/NSToolbarItem.m
+index 0e60fdc88..309d68bbf 100644
+--- a/Source/NSToolbarItem.m
++++ b/Source/NSToolbarItem.m
+@@ -1514,8 +1514,11 @@ NSString *GSMovableToolbarItemPboardType = @"GSMovableToolbarItemPboardType";
+   // Reset to image on the backview: We may have toggled
+   // from one NSToolbarDisplayMode to another, and it is
+   // possible setImage: would have been called on the
+-  // NSToolbarItem while we were in NSToolbarDisplayModeLabelOnly
+-  if ([[self toolbar] displayMode] != NSToolbarDisplayModeLabelOnly)
++  // NSToolbarItem while we were in NSToolbarDisplayModeLabelOnly.
++  // An item with a custom view normally has no image of its own; pushing
++  // nil would wipe the image the view was configured with.
++  if ([[self toolbar] displayMode] != NSToolbarDisplayModeLabelOnly
++    && (_view == nil || _image != nil))
+     {
+       [(GSToolbarButton*)_backView setImage: _image];
+     }

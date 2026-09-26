@@ -34,6 +34,7 @@ libXrandr-devel
 wget
 cups-devel
 libXcomposite-devel
+libXtst-devel
 autoconf
 automake
 libtool
