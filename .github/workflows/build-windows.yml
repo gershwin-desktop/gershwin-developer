@@ -15,6 +15,11 @@ on:
   workflow_dispatch:
 
 env:
+  # The Windows port of the Gershwin repositories lives on their "windows"
+  # branches until it lands in dev: checkout.sh uses that branch wherever a
+  # repository has one and the default branch everywhere else.
+  BRANCH: windows
+
   # Repositories the Windows build does not use, so checkout.sh does not clone
   # them: no libdispatch and libs-av (see install-system-domain.sh), and none
   # of the desktop components that are not built on Windows yet.
