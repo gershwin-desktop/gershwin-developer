@@ -1,0 +1,18 @@
+--- a/Source/NSConnection.m
++++ b/Source/NSConnection.m
+@@ -565,7 +565,14 @@
+ 	      con = [self connectionWithReceivePort: recvPort
+ 					   sendPort: sendPort];
+ 	    }
+-	  ASSIGNCOPY(GSIVar(con, _remoteName), n);
++	  /* The name resolved but no connection could be made (a stale
++	   * registration, or a receive port that could not be created):
++	   * report no connection rather than writing into nil.
++	   */
++	  if (con != nil)
++	    {
++	      ASSIGNCOPY(GSIVar(con, _remoteName), n);
++	    }
+ 	}
+     }
+   return con;
