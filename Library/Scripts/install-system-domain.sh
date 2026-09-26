@@ -79,7 +79,9 @@ if [ "$PLATFORM" = "windows" ]; then
   export LDFLAGS="${LDFLAGS:+$LDFLAGS }-fuse-ld=lld -lstdc++ -lgcc_s"
   export PATH="/System/Library/Tools:$PATH"
   SYSTEM_W="$(cygpath -m /System)"
-  WIN_OBJCFLAGS="-Wno-error=incompatible-pointer-types -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-format"
+  # -g so a crash on Windows gives a readable backtrace under gdb; DWARF
+  # sections cost nothing at run time.
+  WIN_OBJCFLAGS="-g -Wno-error=incompatible-pointer-types -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-format"
   mkdir -p /System/Library/Headers /System/Library/Libraries /System/Library/Tools
 fi
 
@@ -523,7 +525,7 @@ build_workspace() {
     # indexer on Windows; the workspace's own GNUmakefiles leave out the X11
     # and Unix-only parts when GNUSTEP_TARGET_OS is mingw.
     ./configure --disable-dbus --disable-squashfs --disable-libdispatch --disable-gwmetadata
-    $MAKE_CMD -j"$CPUS" || exit 1
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="-g" || exit 1
     return
   fi
   ./configure $BUILD_FLAG
