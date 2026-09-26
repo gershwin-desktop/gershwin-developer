@@ -58,6 +58,31 @@ if [ "$(uname -s)" = "OpenBSD" ]; then
   export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 fi
 
+# Windows: the build runs in an MSYS2 MINGW64 shell with the mingw-w64 clang
+# toolchain, and /System is a directory inside the MSYS2 root (for the shell
+# and make it is /System; for native programs such as cmake and the compiled
+# binaries it is <msys2 root>\System).
+#   - The gnustep-2.x ABI needs lld, and libobjc2's exception handling defers
+#     to the C++ runtime, so both are linked into everything. Exported once so
+#     tools-make records them and every later configure inherits them.
+#   - PATH gets /System/Library/Tools early: on Windows the DLLs live next to
+#     the tools, and configure's link/run tests need to find them before
+#     GNUstep.sh exists.
+#   - Native tools get the Windows spelling of /System (cygpath -m) because
+#     cmake cannot resolve MSYS2 paths.
+#   - The library builds get a few clang warnings demoted the way the MSYS2
+#     packages of gnustep-base/-gui/-back do: the upstream code has no Windows
+#     CI and trips them under a recent clang.
+WINDOWS=0
+if [ "$PLATFORM" = "windows" ]; then
+  WINDOWS=1
+  export LDFLAGS="${LDFLAGS:+$LDFLAGS }-fuse-ld=lld -lstdc++ -lgcc_s"
+  export PATH="/System/Library/Tools:$PATH"
+  SYSTEM_W="$(cygpath -m /System)"
+  WIN_OBJCFLAGS="-Wno-error=incompatible-pointer-types -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-format"
+  mkdir -p /System/Library/Headers /System/Library/Libraries /System/Library/Tools
+fi
+
 # Source the GNUstep environment, which is installed by the corelibs stage via
 # tools-make.  The corelibs stage sources it itself at the right moment, so this
 # is only used by the individual app/component stages when they are run on their
@@ -178,6 +203,22 @@ build_toolsmake() {
   echo "Building tools-make..."
   cd "$REPOS_DIR/tools-make"
   $MAKE_CMD distclean 2>/dev/null || true
+  if [ "$WINDOWS" -eq 1 ]; then
+    # libobjc2 is already installed here (see build_libobjc2_windows), so no
+    # need to keep -lobjc out of the configure link tests. The gershwin layout
+    # and its POSIX /System paths are what tools-make wants on Windows too:
+    # it requires unix-style paths in GNUstep.conf, and libs-base rewrites
+    # them relative to its DLL for the native programs at its configure time.
+    ./configure \
+      --with-config-file=/System/Library/Preferences/GNUstep.conf \
+      --with-layout=gershwin \
+      --with-library-combo=ng-gnu-gnu \
+      CC=clang CXX=clang++ \
+      LDFLAGS="-L/System/Library/Libraries $LDFLAGS" \
+      CPPFLAGS="-I/System/Library/Headers"
+    $MAKE_CMD || exit 1
+    return
+  fi
   # $BUILD_FLAG is --build=<arch>-nextbsd-freebsd on NextBSD (config.guess can't
   # recognize NextBSD's uname), empty elsewhere - harmless on FreeBSD/Linux.
   ./configure \
@@ -199,6 +240,10 @@ install_toolsmake() {
 }
 
 build_libobjc2() {
+  if [ "$WINDOWS" -eq 1 ]; then
+    build_libobjc2_windows
+    return
+  fi
   ensure_gnustep_env
 
   echo "Building libobjc2..."
@@ -222,9 +267,46 @@ build_libobjc2() {
 }
 
 install_libobjc2() {
+  if [ "$WINDOWS" -eq 1 ]; then
+    cd "$REPOS_DIR/libobjc2/Build"
+    ninja install || exit 1
+    # libobjc2 installs its headers under include/ when it is not told the
+    # GNUstep layout (it cannot be: tools-make does not exist yet). GNUstep
+    # looks in Headers, so move them there.
+    if [ -d /System/Library/include ]; then
+      cp -R /System/Library/include/. /System/Library/Headers/
+      rm -rf /System/Library/include
+    fi
+    return
+  fi
   ensure_gnustep_env
   cd "$REPOS_DIR/libobjc2/Build"
   "$MAKE_CMD" install || exit 1
+}
+
+# On Windows there is no libdispatch, so libobjc2 keeps its embedded blocks
+# runtime, and it is built before tools-make (whose configure needs an
+# Objective-C runtime and _Block_copy to link its tests) - the reverse of the
+# other platforms, where libdispatch's BlocksRuntime comes first. Ninja and
+# explicit install directories, because without tools-make there is no
+# gnustep-config for the GNUSTEP_INSTALL_TYPE=SYSTEM lookup. The DLL goes to
+# Tools (that is where tools-make puts DLLs on Windows and what GNUstep.sh
+# puts on PATH), the import library to Libraries.
+build_libobjc2_windows() {
+  echo "Building libobjc2 (Windows)..."
+  rm -rf "$REPOS_DIR/libobjc2/Build"
+  mkdir -p "$REPOS_DIR/libobjc2/Build"
+  cd "$REPOS_DIR/libobjc2/Build"
+  cmake .. -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DGNUSTEP_INSTALL_TYPE=NONE \
+    -DCMAKE_INSTALL_PREFIX="$SYSTEM_W/Library" \
+    -DCMAKE_INSTALL_LIBDIR=Libraries \
+    -DCMAKE_INSTALL_BINDIR=Tools \
+    -DTESTS=OFF
+  ninja || exit 1
 }
 
 build_libsbase() {
@@ -237,6 +319,12 @@ build_libsbase() {
   echo "Patching libs-base..."
   patch.sh libs-base
 
+  if [ "$WINDOWS" -eq 1 ]; then
+    # No libdispatch on Windows (upstream does not use it there either).
+    ./configure --disable-libdispatch
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+    return
+  fi
   if [ "$NEXTBSD" -eq 1 ]; then
     # NextBSD ships libdns_sd (the mDNSResponder DNS-SD client) in
     # /usr/lib/system, which is on binaries' runtime RUNPATH but is NOT a
@@ -280,6 +368,10 @@ build_libsgui() {
 
   cd "$REPOS_DIR/libs-gui"
   ./configure $BUILD_FLAG
+  if [ "$WINDOWS" -eq 1 ]; then
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+    return
+  fi
   $MAKE_CMD -j"$CPUS" || exit 1
 }
 
@@ -299,6 +391,13 @@ build_libsback() {
 
   cd "$REPOS_DIR/libs-back"
   export fonts=no
+  if [ "$WINDOWS" -eq 1 ]; then
+    # The win32 window server (libs-back's default on mingw) drawing through
+    # cairo, the same combination MSYS2 packages.
+    ./configure --enable-graphics=cairo
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+    return
+  fi
   ./configure $BUILD_FLAG
   $MAKE_CMD -j"$CPUS" || exit 1
 }
@@ -307,6 +406,13 @@ install_libsback() {
   ensure_gnustep_env
   cd "$REPOS_DIR/libs-back"
   export fonts=no
+  if [ "$WINDOWS" -eq 1 ]; then
+    $MAKE_CMD install OBJCFLAGS="$WIN_OBJCFLAGS"
+    $MAKE_CMD clean
+    # The plistupdate hook is skipped on Windows: the rule it injects is
+    # guarded with "command -v plistupdate || true", so nothing later misses it.
+    return
+  fi
   $MAKE_CMD install
   $MAKE_CMD clean
 
@@ -341,6 +447,18 @@ install_libsav() {
 }
 
 build_corelibs() {
+  if [ "$WINDOWS" -eq 1 ]; then
+    # No gershwin-system (X session scripts and Unix defaults), no libdispatch,
+    # no libs-av (ffmpeg): the Windows domain is the GNUstep stack plus the
+    # fonts and pictures. libobjc2 before tools-make, see build_libobjc2_windows.
+    build_gershwin_assets;   install_gershwin_assets
+    build_libobjc2;          install_libobjc2
+    build_toolsmake;         install_toolsmake
+    build_libsbase;          install_libsbase
+    build_libsgui;           install_libsgui
+    build_libsback;          install_libsback
+    return
+  fi
   build_gershwin_system;   install_gershwin_system
   build_gershwin_assets;   install_gershwin_assets
   build_libdispatch;       install_libdispatch
@@ -365,6 +483,14 @@ build_workspace() {
     echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
   fi
   autoreconf -fi
+  if [ "$WINDOWS" -eq 1 ]; then
+    # No D-Bus, AppImage/squashfs, libdispatch or the sqlite-backed metadata
+    # indexer on Windows; the workspace's own GNUmakefiles leave out the X11
+    # and Unix-only parts when GNUSTEP_TARGET_OS is mingw.
+    ./configure --disable-dbus --disable-squashfs --disable-libdispatch --disable-gwmetadata
+    $MAKE_CMD -j"$CPUS" || exit 1
+    return
+  fi
   ./configure $BUILD_FLAG
   $MAKE_CMD -j"$CPUS" || exit 1
 }
@@ -579,8 +705,11 @@ case "$TARGET" in
   workspace)
     # gershwin-workspace's MDIndexing prefPane links the PreferencePanes
     # framework (installed by gershwin-systempreferences); build that first
-    # so <PreferencePanes/PreferencePanes.h> resolves.
-    build_systempreferences; install_systempreferences
+    # so <PreferencePanes/PreferencePanes.h> resolves. Not on Windows, where
+    # the metadata indexer (and with it MDIndexing) is not built.
+    if [ "$WINDOWS" -eq 0 ]; then
+      build_systempreferences; install_systempreferences
+    fi
     build_workspace;         install_workspace
     ;;
   systempreferences)

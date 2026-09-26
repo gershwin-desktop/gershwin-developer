@@ -191,8 +191,12 @@ sed_inplace_ere() {
     _tmp="$(mktemp)"
     sed -E "$_pat" "$_file" > "$_tmp" && mv "$_tmp" "$_file"
 }
-sed_inplace_ere \
-    's/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
-    swift-corelibs-libdispatch/CMakeLists.txt
+# libdispatch is not cloned at all when it is in SKIP_REPOS (Windows builds
+# without it), so only touch the file when it is there.
+if [ -f swift-corelibs-libdispatch/CMakeLists.txt ]; then
+    sed_inplace_ere \
+        's/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
+        swift-corelibs-libdispatch/CMakeLists.txt
+fi
 
 echo "Done."

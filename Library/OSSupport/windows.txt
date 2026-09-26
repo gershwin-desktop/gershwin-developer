@@ -1,0 +1,49 @@
+# MSYS2 packages for building the Gershwin System Domain on Windows.
+#
+# The build runs in the MSYS2 "MINGW64" environment: the MSYS-side packages
+# provide the POSIX shell tooling the scripts need, the mingw-w64-x86_64-*
+# packages provide the native clang/lld toolchain and the libraries the GNUstep
+# stack links against. bootstrap.sh installs everything here with pacman.
+# Lines starting with # are comments.
+
+# POSIX tooling (MSYS side)
+git
+make
+patch
+diffutils
+autoconf
+automake
+libtool
+zip
+
+# Toolchain: clang + lld. The gnustep-2.x Objective-C ABI needs lld (or gold),
+# which is why the build is a clang toolchain end to end, as on the other OSes.
+mingw-w64-x86_64-clang
+mingw-w64-x86_64-lld
+mingw-w64-x86_64-cmake
+mingw-w64-x86_64-ninja
+mingw-w64-x86_64-pkgconf
+
+# libs-base
+mingw-w64-x86_64-libffi
+mingw-w64-x86_64-libiconv
+mingw-w64-x86_64-libxml2
+mingw-w64-x86_64-libxslt
+mingw-w64-x86_64-gnutls
+mingw-w64-x86_64-icu
+mingw-w64-x86_64-zlib
+mingw-w64-x86_64-curl
+
+# libs-gui
+mingw-w64-x86_64-libjpeg-turbo
+mingw-w64-x86_64-libpng
+mingw-w64-x86_64-libtiff
+mingw-w64-x86_64-giflib
+
+# libs-back (win32 server with cairo graphics)
+mingw-w64-x86_64-cairo
+mingw-w64-x86_64-freetype
+mingw-w64-x86_64-fontconfig
+
+# gershwin-workspace
+mingw-w64-x86_64-libarchive

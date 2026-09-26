@@ -1,0 +1,83 @@
+name: Build Gershwin System (Windows)
+
+# Builds the Gershwin System Domain for Windows: the patched GNUstep stack
+# (libobjc2, tools-make, libs-base, libs-gui, libs-back with the win32 server)
+# and the Workspace, inside an MSYS2 MINGW64 shell with the mingw-w64 clang
+# toolchain. Same scripts as the Unix builds: bootstrap.sh installs the
+# packages from Library/OSSupport/windows.txt, checkout.sh clones and pins the
+# sources, install-system-domain.sh builds into /System (a directory inside
+# the MSYS2 root). No X11, D-Bus, libdispatch or libs-av on Windows.
+
+on:
+  push:
+    branches: [main, dev, windows]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Repositories the Windows build does not use, so checkout.sh does not clone
+  # them: no libdispatch and libs-av (see install-system-domain.sh), and none
+  # of the desktop components that are not built on Windows yet.
+  SKIP_REPOS: >-
+    swift-corelibs-libdispatch
+    libs-av
+    libs-steptalk
+    gershwin-system
+    gershwin-systempreferences
+    gershwin-eau-theme
+    gershwin-terminal
+    gershwin-textedit
+    gershwin-windowmanager
+    gershwin-components
+    docs
+    gershwin-desktop.wiki
+
+jobs:
+  build-windows-x86_64:
+    name: Windows x86_64
+    runs-on: windows-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # Git for Windows converts LF to CRLF on checkout by default, which
+      # breaks every shell script and patch in the tree.
+      - name: Keep LF line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v5
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          # Only what bootstrap.sh needs to run; it installs the rest.
+          install: git make
+
+      - name: Bootstrap
+        run: ./Library/Scripts/bootstrap.sh
+
+      - name: Checkout sources
+        run: ./Library/Scripts/checkout.sh
+
+      - name: Build core libraries
+        run: make corelibs
+
+      - name: Build workspace
+        run: make workspace
+
+      - name: Package
+        run: |
+          mkdir -p artifacts/Windows/x86_64
+          TIMESTAMP=$(date +%y%m%d%H%M%S)
+          ( cd /System && zip -qr "$GITHUB_WORKSPACE/artifacts/Windows/x86_64/Gershwin-Windows-${TIMESTAMP}.zip" . )
+          ls -l artifacts/Windows/x86_64
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: gershwin-windows-x86_64
+          path: artifacts/Windows/x86_64
+          if-no-files-found: error
