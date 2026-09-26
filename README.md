@@ -12,6 +12,7 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 * Debian
 * Devuan (Debian without systemd)
 * Void Linux (runit)
+* Windows (MSYS2 MINGW64, see below)
 
 ## Requirements for building
 
@@ -96,6 +97,31 @@ cd /Developer
 make corelibs
 make workspace
 ```
+
+## Building on Windows
+
+The Windows build is the same scripts inside an MSYS2 MINGW64 shell with the
+mingw-w64 clang toolchain (the gnustep-2.x ABI needs clang and lld there as
+everywhere else). `/System` is a directory inside the MSYS2 root, so no root
+is needed:
+
+```
+pacman -S git make
+git clone https://github.com/gershwin-desktop/gershwin-developer.git
+cd gershwin-developer
+./Library/Scripts/bootstrap.sh      # pacman installs Library/OSSupport/windows.txt
+./Library/Scripts/checkout.sh
+make corelibs
+make workspace
+```
+
+What the Windows domain contains: libobjc2, tools-make, libs-base, libs-gui
+and libs-back (win32 window server drawing through cairo), all with the
+patches from `Library/Patches/`, plus the fonts and pictures from
+gershwin-assets. Not on Windows: gershwin-system (X session scripts),
+libdispatch, libs-av, the plistupdate hook, D-Bus, and the desktop
+components other than the Workspace. `.github/workflows/build-windows.yml`
+runs this on GitHub Actions and uploads `/System` as a zip.
 
 ## Pinned upstream libraries
 
