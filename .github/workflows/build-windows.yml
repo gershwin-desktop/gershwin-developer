@@ -42,6 +42,9 @@ jobs:
     name: Windows x86_64
     runs-on: windows-latest
     timeout-minutes: 240
+    permissions:
+      # The core system zip is published on the "windows-system" release.
+      contents: write
     defaults:
       run:
         shell: msys2 {0}
@@ -71,11 +74,41 @@ jobs:
       - name: Build core libraries
         run: make corelibs
 
+      # The core system (the patched GNUstep stack, WinUXTheme, the fonts, the
+      # MinGW runtime DLLs and the fontconfig setup) is published on the
+      # rolling "windows-system" release, named by the hash of everything
+      # that produced it, so the CI of gershwin-workspace and the other
+      # components downloads it instead of building the stack every time.
+      - name: Package the core system
+        run: |
+          sh ./Library/Scripts/windows-bundle-runtime.sh
+          ID=$(sh ./Library/Scripts/windows-system-id.sh)
+          echo "$ID" > system-id.txt
+          mkdir -p artifacts/system
+          ( cd /System && zip -qr "$GITHUB_WORKSPACE/artifacts/system/Gershwin-System-Windows-x86_64-${ID}.zip" . )
+          ls -l artifacts/system
+
+      - name: Publish the core system
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $id = (Get-Content system-id.txt).Trim()
+          $asset = "artifacts/system/Gershwin-System-Windows-x86_64-$id.zip"
+          gh release view windows-system --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create windows-system --repo $env:GITHUB_REPOSITORY --prerelease `
+              --title "Windows core system (rolling)" `
+              --notes "The Gershwin core system for Windows as built by the Windows CI: the patched GNUstep stack, WinUXTheme, fonts and the MinGW runtime, self-contained. One zip per identity (Library/Scripts/windows-system-id.sh); the CI of the other Gershwin repositories downloads the zip matching the gershwin-developer it builds with."
+          }
+          gh release upload windows-system $asset --repo $env:GITHUB_REPOSITORY --clobber
+
       - name: Build workspace
         run: make workspace
 
-      # Copy the MinGW runtime DLLs and a fontconfig setup into /System and
-      # add the Workspace.cmd launcher, so the zip runs on a stock Windows.
+      # Again after the workspace: it brings DLLs of its own (libarchive),
+      # and the Workspace.cmd launcher is only written once the app exists.
       - name: Bundle the runtime
         run: sh ./Library/Scripts/windows-bundle-runtime.sh
 

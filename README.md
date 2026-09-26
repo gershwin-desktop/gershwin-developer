@@ -117,11 +117,22 @@ make workspace
 
 What the Windows domain contains: libobjc2, tools-make, libs-base, libs-gui
 and libs-back (win32 window server drawing through cairo), all with the
-patches from `Library/Patches/`, plus the fonts and pictures from
+patches from `Library/Patches/`, GNUstep's WinUXTheme (the native Windows
+look, set as the default theme), plus the fonts and pictures from
 gershwin-assets. Not on Windows: gershwin-system (X session scripts),
 libdispatch, libs-av, the plistupdate hook, D-Bus, and the desktop
-components other than the Workspace. `.github/workflows/build-windows.yml`
-runs this on GitHub Actions and uploads `/System` as a zip.
+components other than the Workspace.
+
+`.github/workflows/build-windows.yml` runs this on GitHub Actions. After
+`make corelibs` it publishes the self-contained core system (with the MinGW
+runtime DLLs bundled by `Library/Scripts/windows-bundle-runtime.sh`) as
+`Gershwin-System-Windows-x86_64-<id>.zip` on the rolling `windows-system`
+release, where `<id>` is `Library/Scripts/windows-system-id.sh`, a hash of
+the pins, patches, scripts and package list. The CI of gershwin-workspace
+(and of other components in the future) downloads the zip with the id of the
+gershwin-developer it builds with, and only builds the stack itself when no
+such zip exists yet. It then builds the Workspace on top and uploads the
+whole `/System` as the workflow artifact.
 
 ## Pinned upstream libraries
 

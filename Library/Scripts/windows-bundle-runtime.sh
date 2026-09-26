@@ -75,6 +75,7 @@ cat > "$FC/fonts.conf" <<'CONF'
 </fontconfig>
 CONF
 
+if [ -x /System/Applications/Workspace.app/Workspace.exe ]; then
 echo "Writing the launcher..."
 # CRLF for cmd.exe. %~dp0 is the directory this launcher lives in, with a
 # trailing backslash.
@@ -85,5 +86,6 @@ printf '%s\r\n' \
   'set "FONTCONFIG_FILE=%~dp0Library\Preferences\fontconfig\fonts.conf"' \
   'start "" "%~dp0Applications\Workspace.app\Workspace.exe" %*' \
   > /System/Workspace.cmd
+fi
 
 echo "Done."

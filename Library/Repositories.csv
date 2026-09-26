@@ -31,6 +31,7 @@ libs-gui,https://github.com/gnustep/libs-gui.git,8f804fd,YES
 libs-back,https://github.com/gnustep/libs-back.git,bbcc3de,YES
 libs-av,https://github.com/gnustep/libs-av.git,26566e2,
 libs-steptalk,https://github.com/gnustep/libs-steptalk.git,2b57b46,
+plugins-themes-WinUXTheme,https://github.com/gnustep/plugins-themes-WinUXTheme.git,92ab1fb,
 gershwin-system,https://github.com/gershwin-desktop/gershwin-system.git,,YES
 gershwin-systempreferences,https://github.com/gershwin-desktop/gershwin-systempreferences.git,,
 gershwin-workspace,https://github.com/gershwin-desktop/gershwin-workspace.git,,

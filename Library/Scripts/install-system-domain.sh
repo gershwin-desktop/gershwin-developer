@@ -394,6 +394,32 @@ GNUSTEP_SYSTEM_DOC=../Documentation
 GNUSTEP_SYSTEM_DOC_MAN=../Documentation/man
 GNUSTEP_SYSTEM_DOC_INFO=../Documentation/info
 EOF_CONF
+  # System-wide defaults live in a GlobalDefaults directory next to the
+  # configuration file gnustep-base actually read, so on Windows next to
+  # this one rather than under Preferences as gershwin-system has them.
+  # The native Windows theme, and otherwise the Gershwin defaults that
+  # apply here.
+  mkdir -p /System/Library/Tools/GlobalDefaults
+  cat > /System/Library/Tools/GlobalDefaults/NSGlobalDomain.plist <<'EOF_PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>GSTheme</key>
+    <string>WinUXTheme</string>
+    <key>GSFileBrowserHideDotFiles</key>
+    <string>YES</string>
+    <key>NSUseRunningCopy</key>
+    <integer>1</integer>
+    <key>GSAppOwnsMiniwindow</key>
+    <integer>0</integer>
+    <key>GSSuppressAppIcon</key>
+    <integer>1</integer>
+    <key>GSFilenameExtensionDisplayMode</key>
+    <string>2</string>
+</dict>
+</plist>
+EOF_PLIST
 }
 
 build_libsgui() {
@@ -483,6 +509,22 @@ install_libsav() {
   $MAKE_CMD clean
 }
 
+# The native Windows look: GNUstep's WinUXTheme draws through the Windows
+# theme engine (uxtheme). Windows only; the other platforms have no build
+# step for it.
+build_winuxtheme() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/plugins-themes-WinUXTheme"
+  $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+}
+
+install_winuxtheme() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/plugins-themes-WinUXTheme"
+  $MAKE_CMD install OBJCFLAGS="$WIN_OBJCFLAGS"
+  $MAKE_CMD clean
+}
+
 build_corelibs() {
   if [ "$WINDOWS" -eq 1 ]; then
     # No gershwin-system (X session scripts and Unix defaults), no libdispatch,
@@ -494,6 +536,7 @@ build_corelibs() {
     build_libsbase;          install_libsbase
     build_libsgui;           install_libsgui
     build_libsback;          install_libsback
+    build_winuxtheme;        install_winuxtheme
     return
   fi
   build_gershwin_system;   install_gershwin_system
@@ -682,6 +725,9 @@ build_one_repo() {
     gershwin-textedit)          build_textedit ;;
     gershwin-windowmanager)     build_windowmanager ;;
     gershwin-components)        build_components ;;
+    plugins-themes-WinUXTheme)
+      if [ "$WINDOWS" -eq 1 ]; then build_winuxtheme
+      else echo "No build step for repository: $1 (Windows only)"; fi ;;
     # Metadata/content repositories and not-yet-buildable pins genuinely
     # have no build step - this is success, not the unknown-repository case
     # below, which is why each is named explicitly rather than folded into
@@ -715,6 +761,9 @@ install_one_repo() {
     gershwin-textedit)          install_textedit ;;
     gershwin-windowmanager)     install_windowmanager ;;
     gershwin-components)        install_components ;;
+    plugins-themes-WinUXTheme)
+      if [ "$WINDOWS" -eq 1 ]; then install_winuxtheme
+      else echo "No install step for repository: $1 (Windows only)"; fi ;;
     gershwin-developer|docs|gershwin-desktop.wiki|libs-steptalk)
       echo "No install step for repository: $1 (metadata/content or not-yet-buildable pin)"
       ;;
