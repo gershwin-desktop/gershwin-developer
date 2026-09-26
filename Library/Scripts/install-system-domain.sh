@@ -209,7 +209,10 @@ build_toolsmake() {
     # and its POSIX /System paths are what tools-make wants on Windows too:
     # it requires unix-style paths in GNUstep.conf, and libs-base rewrites
     # them relative to its DLL for the native programs at its configure time.
+    # --prefix=/ because MSYS2's config.site defaults the prefix to /mingw64
+    # and tools-make prepends the prefix to every layout path.
     ./configure \
+      --prefix=/ \
       --with-config-file=/System/Library/Preferences/GNUstep.conf \
       --with-layout=gershwin \
       --with-library-combo=ng-gnu-gnu \
