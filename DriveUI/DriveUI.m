@@ -513,14 +513,20 @@ static void WriteAll(int fd, const char *bytes)
               /* Report the app's current modal window, if any.  This lets
                * scripts detect dialogs/alerts that block interaction and
                * dismiss them before continuing.  Reply is
-               * "none" or "<Class>|<title>". */
+               * "none" or "<Class>|<title>|<frame>".  The frame is there
+               * because a dialog attached as a sheet slides out from under
+               * its parent's titlebar: the modal session exists from the
+               * first frame of that slide, but a click computed while the
+               * window is still moving lands beside the button.  The
+               * harness compares two frames to know when the slide is over. */
               NSString *reply = @"none\n";
               NSWindow *mw = [NSApp modalWindow];
               if (mw != nil)
                 {
                   NSString *title = [mw title] ?: @"";
-                  reply = [NSString stringWithFormat: @"%@|%@\n",
-                    NSStringFromClass ([mw class]), title];
+                  reply = [NSString stringWithFormat: @"%@|%@|%@\n",
+                    NSStringFromClass ([mw class]), title,
+                    NSStringFromRect ([mw frame])];
                 }
               WriteAll(fd, [reply UTF8String]);
             }
