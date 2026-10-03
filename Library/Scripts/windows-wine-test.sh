@@ -48,13 +48,21 @@ esac
 [ -x "$SYSTEM/Applications/Workspace.app/Workspace.exe" ] || { echo "No Workspace.exe under $SYSTEM" >&2; exit 2; }
 
 export WINEPREFIX="$WORK/prefix" WINEARCH=win64 WINEDEBUG="${WINEDEBUG:--all}"
+# No Mono or Gecko installation prompts on the fresh prefix.
+export WINEDLLOVERRIDES="mscoree,mshtml="
 wineboot -i >/dev/null 2>&1
 export WINEPATH="$(winepath -w "$SYSTEM/Library/Tools")"
 cd "$SYSTEM"
 
+# Distributed Objects over TCP: gdomap is the name server, gdnc the
+# notification center the Workspace must reach at startup. Both are started
+# here rather than left to the Workspace, which would give up on them before
+# their registration through Wine's network stack is done.
 wine Library/Tools/defaults.exe write NSGlobalDomain NSPortIsMessagePort NO >/dev/null 2>&1
 wine Library/Tools/gdomap.exe -f -N >/dev/null 2>&1 &
 sleep 3
+wine Library/Tools/gdnc.exe >/dev/null 2>&1 &
+sleep 8
 
 echo "Starting the Workspace under $(wine --version 2>/dev/null)..."
 wine Applications/Workspace.app/Workspace.exe > "$OUT/wine-stdout.log" 2> "$OUT/wine-stderr.log" &

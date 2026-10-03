@@ -11,9 +11,15 @@
 # result depends only on the file contents.
 set -e
 cd "$(dirname "$0")/../.."
+# Only the scripts that take part in producing /System: the test and CI
+# helper scripts next to them do not change what is built.
 {
   cat Library/Repositories.csv Library/OSSupport/windows.txt
-  find Library/Patches Library/Scripts -type f | LC_ALL=C sort | while read -r f; do
+  { find Library/Patches -type f
+    printf '%s\n' Library/Scripts/bootstrap.sh Library/Scripts/checkout.sh \
+      Library/Scripts/functions.sh Library/Scripts/patch.sh \
+      Library/Scripts/install-system-domain.sh Library/Scripts/windows-bundle-runtime.sh
+  } | LC_ALL=C sort | while read -r f; do
     printf '%s\n' "$f"; cat "$f"
   done
 } | sha256sum | cut -c1-16
