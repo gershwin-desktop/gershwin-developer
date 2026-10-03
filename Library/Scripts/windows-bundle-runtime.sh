@@ -10,8 +10,8 @@
 # Windows tools-make puts the DLLs where the tools are, so one directory on
 # PATH resolves everything), bundles a fontconfig configuration that finds
 # the Windows fonts and the Gershwin fonts without any /mingw64 paths, and
-# writes a Workspace.cmd launcher at the top of /System that sets the two
-# environment variables the whole thing needs: PATH and FONTCONFIG_FILE.
+# writes a Workspace.cmd launcher at the top of /System that puts the
+# Tools directory on PATH, the one thing the tree needs from its environment.
 set -e
 
 case "$(uname -s)" in
@@ -55,7 +55,10 @@ for name in libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll; do
 done
 
 echo "Bundling the fontconfig configuration..."
-FC=/System/Library/Preferences/fontconfig
+# fontconfig's Windows build looks for its configuration in etc/fonts next
+# to (the parent of) its own DLL, so this location needs no environment
+# variable at run time.
+FC=/System/Library/Tools/etc/fonts
 mkdir -p "$FC/conf.d"
 if [ -d "$MINGW_PREFIX/etc/fonts/conf.d" ]; then
   cp "$MINGW_PREFIX"/etc/fonts/conf.d/*.conf "$FC/conf.d/" 2>/dev/null || true
@@ -69,7 +72,7 @@ cat > "$FC/fonts.conf" <<'CONF'
 <!-- Gershwin on Windows: bundled fontconfig configuration. -->
 <fontconfig>
   <dir>WINDOWSFONTDIR</dir>
-  <dir prefix="relative">../../Fonts</dir>
+  <dir prefix="relative">../../../Fonts</dir>
   <cachedir>LOCAL_APPDATA_FONTCONFIG_CACHE</cachedir>
   <include ignore_missing="yes">conf.d</include>
 </fontconfig>
@@ -83,7 +86,6 @@ printf '%s\r\n' \
   '@echo off' \
   'rem Starts the Gershwin Workspace from this self-contained tree.' \
   'set "PATH=%~dp0Library\Tools;%PATH%"' \
-  'set "FONTCONFIG_FILE=%~dp0Library\Preferences\fontconfig\fonts.conf"' \
   'start "" "%~dp0Applications\Workspace.app\Workspace.exe" %*' \
   > /System/Workspace.cmd
 fi

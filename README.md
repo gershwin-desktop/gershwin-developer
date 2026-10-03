@@ -134,6 +134,20 @@ gershwin-developer it builds with, and only builds the stack itself when no
 such zip exists yet. It then builds the Workspace on top and uploads the
 whole `/System` as the workflow artifact.
 
+A Windows build can be tried on a Unix machine with Wine, no Windows
+needed, using the zip either workflow uploads:
+
+```
+sh Library/Scripts/windows-wine-test.sh Gershwin-Workspace-Windows-*.zip
+```
+
+It unpacks the tree into a fresh Wine prefix, starts the Workspace, reports
+whether it is still running after 45 seconds and leaves a screenshot. Wine
+differs from Windows in two ways the script papers over: its mailslots do
+not carry GNUstep's Distributed Objects (the prefix is set to socket ports
+and gdomap), and it has no Windows fonts (the bundled fonts are the Windows
+defaults).
+
 ## Pinned upstream libraries
 
 The upstream libraries (`libobjc2`, `tools-make`, `libs-base`, `libs-gui`,

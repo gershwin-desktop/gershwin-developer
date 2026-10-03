@@ -397,8 +397,10 @@ EOF_CONF
   # System-wide defaults live in a GlobalDefaults directory next to the
   # configuration file gnustep-base actually read, so on Windows next to
   # this one rather than under Preferences as gershwin-system has them.
-  # The native Windows theme, and otherwise the Gershwin defaults that
-  # apply here.
+  # The native Windows theme, the Gershwin defaults that apply here, and
+  # the bundled fonts as the defaults: without them the backend looks for
+  # Tahoma or DejaVu, which a machine (or a Wine prefix) may not have, and
+  # falls back to a Helvetica that no font is called.
   mkdir -p /System/Library/Tools/GlobalDefaults
   cat > /System/Library/Tools/GlobalDefaults/NSGlobalDomain.plist <<'EOF_PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -417,6 +419,18 @@ EOF_CONF
     <integer>1</integer>
     <key>GSFilenameExtensionDisplayMode</key>
     <string>2</string>
+    <key>NSFont</key>
+    <string>Inter-Medium</string>
+    <key>NSFontSize</key>
+    <string>13.0</string>
+    <key>NSBoldFont</key>
+    <string>Inter-Bold</string>
+    <key>NSUserFont</key>
+    <string>Inter-Medium</string>
+    <key>NSFixedPitchFont</key>
+    <string>LuxiMono</string>
+    <key>NSUserFixedPitchFont</key>
+    <string>LuxiMono</string>
 </dict>
 </plist>
 EOF_PLIST
