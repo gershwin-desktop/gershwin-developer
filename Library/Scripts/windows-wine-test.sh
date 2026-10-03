@@ -63,13 +63,20 @@ cd "$SYSTEM"
 export GDOMAP_PORT_OVERRIDE="${GDOMAP_PORT_OVERRIDE:-20538}"
 wine Library/Tools/defaults.exe write NSGlobalDomain NSPortIsMessagePort NO >/dev/null 2>&1
 # gdomap serves the addresses it is given rather than whatever interfaces
-# Wine reports, so that the loopback the clients connect to is among them.
-printf '127.0.0.1\n' > "$WORK/gdomap-addresses"
+# Wine reports: the loopback, and the machine's own addresses, since a
+# lookup of the local host may resolve to either.
+{
+  printf '127.0.0.1 255.0.0.0\n'
+  for a in $(hostname -I 2>/dev/null || true); do
+    case "$a" in *.*.*.*) printf '%s 255.255.255.0\n' "$a" ;; esac
+  done
+} > "$WORK/gdomap-addresses"
 wine Library/Tools/gdomap.exe -f -N -d -a "$(winepath -w "$WORK/gdomap-addresses")" > "$OUT/wine-gdomap.log" 2>&1 &
 sleep 3
 wine Library/Tools/gdnc.exe > "$OUT/wine-gdnc.log" 2>&1 &
 sleep 8
-echo "gdomap lookup of gdnc: $(wine Library/Tools/gdomap.exe -L gdnc 2>&1 | tr -d '\r' | tail -1)"
+echo "gdomap addresses: $(tr '\n' ';' < "$WORK/gdomap-addresses")"
+echo "gdomap lookup of gdnc: $(wine Library/Tools/gdomap.exe -L gdnc -H 127.0.0.1 2>&1 | tr -d '\r' | tail -1)"
 
 echo "Starting the Workspace under $(wine --version 2>/dev/null)..."
 wine Applications/Workspace.app/Workspace.exe > "$OUT/wine-stdout.log" 2> "$OUT/wine-stderr.log" &
