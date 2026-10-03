@@ -60,6 +60,7 @@
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <GNUstepGUI/GSDisplayServer.h>
 #import "DriveUITreeFormat.h"
 #import <sys/socket.h>
 #import <sys/un.h>
@@ -128,6 +129,7 @@
 - (NSString *)objectIDForObject:(id)obj;
 - (id)objectForID:(NSString *)objID;
 - (NSString *)snapshotLines;
+- (NSWindow *)frontWindow;
 @end
 
 @implementation DriveUI
@@ -358,6 +360,26 @@ static void WriteAll(int fd, const char *bytes)
               NSString *reply = [name stringByAppendingString: @"\n"];
               WriteAll(fd, [reply UTF8String]);
             }
+          else if ([cmd isEqualToString: @"front_window"])
+            {
+              /* Read-only: "<xid>\t<key>" - the X window id of the window a
+               * user brings forward when switching to this app (0 when it has
+               * none), and 1 when that window already has the keyboard.
+               * Activating an app must not click into it: a click lands on
+               * whatever is there first - a Dock icon launches an app, a
+               * desktop icon gets selected. */
+              NSWindow *front = [self frontWindow];
+              unsigned long xid = 0;
+              BOOL key = NO;
+              if (front != nil)
+                {
+                  xid = (unsigned long)(uintptr_t)[GSCurrentServer()
+                          windowDevice: [front windowNumber]];
+                  key = [NSApp isActive] && [front isKeyWindow];
+                }
+              WriteAll(fd, [[NSString stringWithFormat: @"%lu\t%d\n",
+                              xid, key ? 1 : 0] UTF8String]);
+            }
           else if ([cmd isEqualToString: @"windows"])
             {
               /* Read-only: the titles of all VISIBLE windows, one per line.
@@ -491,14 +513,20 @@ static void WriteAll(int fd, const char *bytes)
               /* Report the app's current modal window, if any.  This lets
                * scripts detect dialogs/alerts that block interaction and
                * dismiss them before continuing.  Reply is
-               * "none" or "<Class>|<title>". */
+               * "none" or "<Class>|<title>|<frame>".  The frame is there
+               * because a dialog attached as a sheet slides out from under
+               * its parent's titlebar: the modal session exists from the
+               * first frame of that slide, but a click computed while the
+               * window is still moving lands beside the button.  The
+               * harness compares two frames to know when the slide is over. */
               NSString *reply = @"none\n";
               NSWindow *mw = [NSApp modalWindow];
               if (mw != nil)
                 {
                   NSString *title = [mw title] ?: @"";
-                  reply = [NSString stringWithFormat: @"%@|%@\n",
-                    NSStringFromClass ([mw class]), title];
+                  reply = [NSString stringWithFormat: @"%@|%@|%@\n",
+                    NSStringFromClass ([mw class]), title,
+                    NSStringFromRect ([mw frame])];
                 }
               WriteAll(fd, [reply UTF8String]);
             }
@@ -1100,6 +1128,37 @@ static NSString *ShortcutForItem(NSMenuItem *item)
 }
 
 /* ---- snapshot builder (main thread) ---- */
+
+/* The front-most visible window that can be the app's main window (a
+ * document or viewer, or a desktop window below everything), else the
+ * front-most one that can take the keyboard.  Panels, menus and a dock
+ * cannot, so they are never what switching to the app brings forward. */
+- (NSWindow *)frontWindow
+{
+  NSArray *ordered = GSOrderedWindows();
+  NSWindow *chosen = nil;
+
+  for (NSWindow *win in ordered)
+    {
+      if ([win isVisible] && [win canBecomeMainWindow])
+        {
+          chosen = win;
+          break;
+        }
+    }
+  if (chosen == nil)
+    {
+      for (NSWindow *win in ordered)
+        {
+          if ([win isVisible] && [win canBecomeKeyWindow])
+            {
+              chosen = win;
+              break;
+            }
+        }
+    }
+  return chosen;
+}
 
 - (void)buildSnapshot:(id)unused
 {

@@ -1,0 +1,18 @@
+diff --git a/Tools/gpbs.m b/Tools/gpbs.m
+index 5cf7251..f6ece64 100644
+--- a/Tools/gpbs.m
++++ b/Tools/gpbs.m
+@@ -1225,11 +1233,13 @@ init(int argc, char** argv, char **env)
+ 	  [t setStandardOutput: null];
+ 	  [t setStandardError: null];
+ 	  [t launch];
++	  [t waitUntilExit];
+ 	  DESTROY(t);
+ 	}
+       NS_HANDLER
+ 	{
+ 	  gpbs_log(LOG_CRIT, [[localException description] UTF8String]);
++	  [t waitUntilExit];
+ 	  DESTROY(t);
+ 	}
+       NS_ENDHANDLER

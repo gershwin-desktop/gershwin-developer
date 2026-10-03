@@ -10,6 +10,7 @@
 #import <X11/Xutil.h>
 #import <X11/keysym.h>
 #import <X11/XKBlib.h>
+#import <X11/extensions/XTest.h>
 #include <unistd.h>
 
 @implementation X11Support
@@ -448,6 +449,7 @@ static void SendButton(Display *d, Window w, int wx, int wy, int rx, int ry,
     XSendEvent(d, w, True, press ? ButtonPressMask : ButtonReleaseMask, &e);
 }
 
+
 // Send a synthetic key event addressed to a specific GNUstep window.  This is
 // how typing is injected (see ResolveKeyTarget): it works without the app
 // holding the X input focus, which a window-managed desktop rarely guarantees.
@@ -585,37 +587,264 @@ static void SendKey(Display *d, Window w, KeyCode code,
 // app treats as the drag; press and release are sent as synthetic button
 // events to the GNUstep window under each position.
 + (void)simulateDragBy:(NSPoint)delta {
+    [self simulateDragBy: delta holdAtEnd: 0];
+}
+
++ (void)simulateDragBy:(NSPoint)delta holdAtEnd:(NSTimeInterval)hold {
+    NSPoint start = [self pointerLocation];
+
+    /* XTest's own idea of the pointer must match the warped one before the
+     * button goes down, or the press lands where XTest last left it. */
+    [self movePointerTo: start steps: 1];
+    if (![self setButton: 1 pressed: YES]) return;
+    usleep(kPressHoldMicroseconds);
+
+    NSPoint end = NSMakePoint(start.x + delta.x, start.y + delta.y);
+    [self movePointerTo: end steps: 12];
+
+    /* The drop is decided by the last position the application saw, not by
+     * where the pointer really is.  A busy application can still be working
+     * through earlier motion when the button comes up, and it then concludes
+     * the drag somewhere on the way - a file dropped on a folder icon was
+     * taken as a drop on the window behind it, which moves the icon instead
+     * of asking to move the file.  A few late motions a pixel apart give it
+     * fresh events at the destination to catch up with. */
+    for (int i = 0; i < 3; i++) {
+        [self movePointerTo: NSMakePoint(end.x + ((i % 2) ? 1 : -1), end.y)
+                      steps: 1];
+        usleep(50000);
+        [self movePointerTo: end steps: 1];
+        usleep(50000);
+    }
+
+    /* Let the application act on the last position before the button comes
+     * up: where the pointer was at the release is what decides the drop. */
+    usleep(150000);
+    if (hold > 0)
+        usleep((useconds_t)(hold * 1000000.0));
+    [self setButton: 1 pressed: NO];
+}
+
+static void DescribeWindowTree(Display *d, Window w, int depth,
+                               NSMutableString *out)
+{
+    XWindowAttributes attrs;
+
+    if (depth > 4 || !XGetWindowAttributes(d, w, &attrs)) {
+        return;
+    }
+    int absX = 0, absY = 0;
+    Window ignored;
+    XTranslateCoordinates(d, w, DefaultRootWindow(d), 0, 0, &absX, &absY,
+                          &ignored);
+    char *name = NULL;
+    XFetchName(d, w, &name);
+    [out appendFormat: @"  %*s0x%lx %dx%d+%d+%d %s %s\n", depth * 2, "",
+      (unsigned long)w, attrs.width, attrs.height, absX, absY,
+      (attrs.map_state == IsViewable) ? "viewable" : "unmapped",
+      name ? name : ""];
+    if (name) XFree(name);
+
+    Window root, parent, *kids = NULL;
+    unsigned int nkids = 0;
+    if (XQueryTree(d, w, &root, &parent, &kids, &nkids)) {
+        for (unsigned int i = 0; i < nkids; i++)
+            DescribeWindowTree(d, kids[i], depth + 1, out);
+        if (kids) XFree(kids);
+    }
+}
+
++ (NSString *)windowTreeDescriptionForPID:(int)pid {
     Display *d = [self display];
-    if (!d) return;
+    if (!d) return @"";
+    NSMutableString *out = [NSMutableString string];
+    for (NSNumber *wid in [self windowList]) {
+        NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
+        if (info == nil) continue;
+        if ([[info objectForKey: @"pid"] intValue] != pid) continue;
+        DescribeWindowTree(d, (Window)[wid unsignedLongValue], 0, out);
+    }
+    return out;
+}
+
++ (int)pidOwningWindowAtPoint:(NSPoint)point {
+    Display *d = [self display];
+    if (!d) return 0;
+
+    Window root = DefaultRootWindow(d);
+    Window win = root, child = None, r = None;
+    int rx = 0, ry = 0, wx = 0, wy = 0;
+    unsigned int mask = 0;
+
+    /* Descend to the deepest window that contains the point, the one X would
+     * deliver a button press to. */
+    while (XQueryPointer(d, win, &r, &child, &rx, &ry, &wx, &wy, &mask)
+           && child != None) {
+        win = child;
+    }
+    /* The window manager reparents a client into a frame of its own; only one
+     * window of the chain carries _NET_WM_PID, so walk up until it is found. */
+    Atom atomPID = XInternAtom(d, "_NET_WM_PID", True);
+    if (atomPID == None) return 0;
+    for (int up = 0; up < 8 && win != None && win != root; up++) {
+        Atom type = None;
+        int format = 0;
+        unsigned long items = 0, after = 0;
+        unsigned char *prop = NULL;
+        if (XGetWindowProperty(d, win, atomPID, 0, 1, False, XA_CARDINAL,
+                               &type, &format, &items, &after, &prop) == Success
+            && prop != NULL) {
+            int pid = (int)(*(unsigned long *)prop);
+            XFree(prop);
+            if (pid > 0) return pid;
+        }
+        Window parent = None, qroot = None, *kids = NULL;
+        unsigned int nkids = 0;
+        if (!XQueryTree(d, win, &qroot, &parent, &kids, &nkids)) break;
+        if (kids) XFree(kids);
+        win = parent;
+    }
+    return 0;
+}
+
++ (NSPoint)pointerLocation {
+    Display *d = [self display];
+    if (!d) return NSZeroPoint;
     Window root = DefaultRootWindow(d), r, child;
     int rx = 0, ry = 0, wx = 0, wy = 0;
     unsigned int mask = 0;
-    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
+    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask))
+        return NSZeroPoint;
+    return NSMakePoint(rx, ry);
+}
 
-    int tx = 0, ty = 0;
-    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
-    Time t = ServerTime(d);
-    SendButton(d, target, tx, ty, rx, ry, True, 1, 0, t);
-    XFlush(d);
-    usleep(kPressHoldMicroseconds);
+static BOOL HasXTest(Display *d) {
+    int event_base = 0, error_base = 0, major = 0, minor = 0;
+    return XTestQueryExtension(d, &event_base, &error_base, &major, &minor);
+}
 
-    const int steps = 12;
++ (void)movePointerTo:(NSPoint)point steps:(int)steps {
+    Display *d = [self display];
+    if (!d || !HasXTest(d)) return;
+    NSPoint from = [self pointerLocation];
+    if (steps < 1) steps = 1;
     for (int i = 1; i <= steps; i++) {
         double frac = (double)i / steps;
-        int nx = rx + (int)lround(delta.x * frac);
-        int ny = ry + (int)lround(delta.y * frac);
-        XWarpPointer(d, None, root, 0, 0, 0, 0, nx, ny);
+        int nx = (int)lround(from.x + (point.x - from.x) * frac);
+        int ny = (int)lround(from.y + (point.y - from.y) * frac);
+        XTestFakeMotionEvent(d, -1, nx, ny, 0);
         XSync(d, False);
-        usleep(12000);
+        if (steps > 1) usleep(12000);
     }
+}
 
-    // Release over the final position, resolving the window there so a drag
-    // that crosses windows ends at the target (drag-and-drop semantics).
-    int frx = 0, fry = 0, ftx = 0, fty = 0;
-    XQueryPointer(d, root, &r, &child, &frx, &fry, &wx, &wy, &mask);
-    Window ftarget = ResolveWindowAt(d, frx, fry, &ftx, &fty);
-    SendButton(d, ftarget, ftx, fty, frx, fry, False, 1, Button1Mask, t + 1);
++ (BOOL)setButton:(int)button pressed:(BOOL)pressed {
+    Display *d = [self display];
+    if (!d) return NO;
+    /* A drag has to hold the button down for real.  A synthetic XSendEvent
+     * press leaves the server's own button state up, so every motion that
+     * follows is reported as a plain move and an application waiting for
+     * dragged events never sees the gesture at all.  XTest presses the button
+     * in the server, the way a real pointer does, so the whole toolkit stack
+     * treats this exactly like a user's drag. */
+    if (!HasXTest(d)) {
+        NSLog(@"X11Support: XTest missing, cannot press or release a button");
+        return NO;
+    }
+    XTestFakeButtonEvent(d, (unsigned int)button, pressed ? True : False, 0);
     XSync(d, False);
+    return YES;
+}
+
++ (BOOL)geometryOfWindow:(unsigned long)xid x:(int *)x y:(int *)y
+                   width:(int *)width height:(int *)height {
+    Display *d = [self display];
+    if (!d || xid == 0) return NO;
+    XWindowAttributes attrs;
+    Window child;
+    int rx = 0, ry = 0;
+    if (!XGetWindowAttributes(d, (Window)xid, &attrs)) return NO;
+    if (!XTranslateCoordinates(d, (Window)xid, DefaultRootWindow(d),
+                               0, 0, &rx, &ry, &child))
+        return NO;
+    *x = rx - attrs.border_width;
+    *y = ry - attrs.border_width;
+    *width = attrs.width + 2 * attrs.border_width;
+    *height = attrs.height + 2 * attrs.border_width;
+    return YES;
+}
+
++ (BOOL)titlebarPointOfWindow:(unsigned long)xid point:(NSPoint *)point {
+    Display *d = [self display];
+    if (!d || xid == 0) return NO;
+    int fx, fy, fw, fh;
+    if (![self geometryOfWindow: xid x: &fx y: &fy width: &fw height: &fh])
+        return NO;
+
+    /* The client is the frame's largest child; whatever the frame shows
+     * above it is the titlebar, however tall the theme and scale make it. */
+    Window root, parent, *children = NULL;
+    unsigned int n = 0;
+    if (!XQueryTree(d, (Window)xid, &root, &parent, &children, &n)) return NO;
+    long bestArea = 0;
+    int clientTop = 0;
+    for (unsigned int i = 0; i < n; i++) {
+        XWindowAttributes a;
+        if (!XGetWindowAttributes(d, children[i], &a)) continue;
+        if (a.map_state != IsViewable) continue;
+        long area = (long)a.width * a.height;
+        if (area > bestArea) {
+            bestArea = area;
+            clientTop = a.y;
+        }
+    }
+    if (children) XFree(children);
+    if (bestArea == 0 || clientTop <= 0) return NO;
+
+    *point = NSMakePoint(fx + fw / 2, fy + clientTop / 2);
+    return YES;
+}
+
++ (NSDictionary *)titlebarButtonsOfWindow:(unsigned long)xid {
+    Display *d = [self display];
+    if (!d || xid == 0) return nil;
+    Atom prop = XInternAtom(d, "_WINDOW_TITLEBAR_BUTTONS", True);
+    if (prop == None) return nil;
+
+    /* The property sits on the titlebar, one of the frame's children. */
+    Window root, parent, *children = NULL;
+    unsigned int n = 0;
+    if (!XQueryTree(d, (Window)xid, &root, &parent, &children, &n)) return nil;
+    NSDictionary *result = nil;
+    for (unsigned int i = 0; i < n && result == nil; i++) {
+        Atom type;
+        int format;
+        unsigned long count, after;
+        unsigned char *data = NULL;
+        if (XGetWindowProperty(d, children[i], prop, 0, 64, False, XA_CARDINAL,
+                               &type, &format, &count, &after, &data) != Success)
+            continue;
+        if (type == XA_CARDINAL && format == 32 && count >= 5) {
+            int tx = 0, ty = 0;
+            Window child;
+            XTranslateCoordinates(d, children[i], DefaultRootWindow(d), 0, 0,
+                                  &tx, &ty, &child);
+            /* Format-32 property data comes back as longs on the client. */
+            long *v = (long *)data;
+            NSArray *names = @[ @"close", @"minimize", @"zoom" ];
+            NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
+            for (unsigned long k = 0; k + 4 < count; k += 5) {
+                if (v[k] < 0 || v[k] > 2) continue;
+                NSRect r = NSMakeRect(tx + v[k + 1], ty + v[k + 2], v[k + 3], v[k + 4]);
+                [buttons setObject: [NSValue valueWithRect: r]
+                            forKey: [names objectAtIndex: v[k]]];
+            }
+            result = buttons;
+        }
+        if (data) XFree(data);
+    }
+    if (children) XFree(children);
+    return result;
 }
 
 // Emit wheel (or tilt) steps at the current pointer location.  Up/down/left/

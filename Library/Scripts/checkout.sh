@@ -49,68 +49,33 @@ ON_BRANCH=""     # repos actually placed on $BRANCH (for the end-of-run summary)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPOS_DIR="$SCRIPT_DIR/../Sources"
 
-REPOS="
-https://github.com/apple/swift-corelibs-libdispatch.git
-https://github.com/gnustep/libobjc2.git
-https://github.com/gnustep/tools-make.git
-https://github.com/gnustep/libs-base.git
-https://github.com/gnustep/libs-gui.git
-https://github.com/gnustep/libs-back.git
-https://github.com/gnustep/libs-av.git
-https://github.com/gnustep/libs-steptalk.git
-https://github.com/gershwin-desktop/gershwin-system.git
-https://github.com/gershwin-desktop/gershwin-workspace.git
-https://github.com/gershwin-desktop/gershwin-systempreferences.git
-https://github.com/gershwin-desktop/gershwin-eau-theme.git
-https://github.com/gershwin-desktop/gershwin-terminal.git
-https://github.com/gershwin-desktop/gershwin-textedit.git
-https://github.com/gershwin-desktop/gershwin-windowmanager.git
-https://github.com/gershwin-desktop/gershwin-components.git
-https://github.com/gershwin-desktop/gershwin-assets.git
-https://github.com/gershwin-desktop/docs.git
-https://github.com/gershwin-desktop/gershwin-desktop.wiki.git
-"
+# The repository list, clone order, upstream pins and per-repo restart flag
+# all live in Library/Repositories.csv - the same file Software Update reads
+# - so there is exactly one place to change them. CSV rather than a plist so
+# plain awk/cut can read it before GNUstep exists on a fresh machine; no
+# field here (name, URL, sha) ever contains a comma, so no quoting is needed.
+REPOS_CSV="$SCRIPT_DIR/../Repositories.csv"
 
-# Pinned commits, as "<repo name> <commit>". These are upstream libraries; we pin
-# them so we don't develop against a moving target and so the patches under
-# Library/Patches/ keep applying. Every entry here must be a non-Gershwin repo —
-# Gershwin's own repositories track their branch and are deliberately absent.
-# Refreshed 2026-07-26. Every patch under Library/Patches/ was dry-run against
-# these commits. libs-gui is held a day behind its HEAD: dropdown-tracking.patch
-# does not apply to the 2026-07-26 commits.
-# libs-opal was added later, at its 2026-08-17 HEAD, which is the tree
-# openbsd-swap64-name-collision.patch was written and dry-run against.
-# libs-corebase was pinned at its 2026-09-06 HEAD, the tree CI has been
-# building; it carries no patch, so the pin is only to stop it moving.
-# libs-quartzcore is deliberately still unpinned.
-PINS="
-libobjc2                    c9f4002
-libs-back                   bbcc3de
-libs-base                   5bda522
-libs-gui                    8f804fd
-swift-corelibs-libdispatch  95f592a
-tools-make                  4e31a03
-libs-av                     26566e2
-libs-steptalk               2b57b46
-libs-opal                   98f8e4f
-libs-corebase               e89ff1f
-"
+# Names of every repository, in the order Repositories.csv lists them.
+list_repo_names() {
+    awk -F, '/^#/ { next } $1 == "" || $1 == "Name" { next } { print $1 }' "$REPOS_CSV"
+}
 
-# Echo the pinned commit for repo $1, or nothing if the repo is not pinned.
+# The clone URL for repo $1.
+url_for() {
+    awk -F, -v name="$1" '/^#/ { next } $1 == name { print $2; exit }' "$REPOS_CSV"
+}
+
+# The pinned commit for repo $1, or nothing if it is not pinned.
 pin_for() {
-    echo "$PINS" | while read -r _name _commit _rest; do
-        if [ "$_name" = "$1" ]; then
-            echo "$_commit"
-            break
-        fi
-    done
+    awk -F, -v name="$1" '/^#/ { next } $1 == name { print $3; exit }' "$REPOS_CSV"
 }
 
 mkdir -p "$REPOS_DIR"
 cd "$REPOS_DIR"
 
-for REPO in $REPOS; do
-    NAME=$(basename "$REPO" .git)
+for NAME in $(list_repo_names); do
+    REPO=$(url_for "$NAME")
 
     case " $SKIP_REPOS " in
         *" $NAME "*)
@@ -192,23 +157,22 @@ fi
 if [ "$PINNED" -eq 1 ]; then
     echo "Checking out pinned commits..."
 
-    # Fed by redirection rather than a pipe so `set -e` still applies to the body.
-    while read -r NAME COMMIT _rest; do
-        [ -n "$NAME" ] || continue
+    for NAME in $(list_repo_names); do
         [ -d "$NAME/.git" ] || continue
+        COMMIT=$(pin_for "$NAME")
+        [ -n "$COMMIT" ] || continue
         echo "  $NAME -> $COMMIT"
         (
             cd "$NAME"
             git checkout "$COMMIT"
         )
-    done <<EOF
-$PINS
-EOF
+    done
 fi
 
-# Gershwin's own repositories are intentionally NOT in $PINS: pinning them would
-# mean the build no longer picks up our own work. These commits are kept only as
-# a record of a known-good set. Do not move them into $PINS.
+# Gershwin's own repositories are intentionally not pinned in Repositories.plist:
+# pinning them would mean the build no longer picks up our own work. These
+# commits are kept only as a record of a known-good set. Do not add a Pin key
+# for them.
 # gershwin-windowmanager       1f3cc1c
 # gershwin-components          3395d99
 # gershwin-eau-theme           4babcb0

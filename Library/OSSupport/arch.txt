@@ -32,6 +32,7 @@ libxrandr
 wget
 cups
 libxcomposite
+libxtst
 autoconf
 automake
 libtool

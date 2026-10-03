@@ -1,0 +1,12 @@
+diff --git a/Headers/Foundation/NSBackgroundActivityScheduler.h b/Headers/Foundation/NSBackgroundActivityScheduler.h
+--- a/Headers/Foundation/NSBackgroundActivityScheduler.h
++++ b/Headers/Foundation/NSBackgroundActivityScheduler.h
+@@ -77,7 +77,7 @@
+   NSActivityOptions _opts;
+   id _token;
+   NSString *_reason;
+-  BLOCK_SCOPE GSScheduledBlock _block;
++  GSScheduledBlock _block;
+ }
+   
+ - (instancetype) initWithIdentifier: (NSString *)identifier;

@@ -1,0 +1,29 @@
+diff --git a/Source/NSScrollView.m b/Source/NSScrollView.m
+index 190aa631f..3f52d4a6a 100644
+--- a/Source/NSScrollView.m
++++ b/Source/NSScrollView.m
+@@ -857,6 +857,7 @@ static CGFloat scrollerWidth;
+ - (void) _autohideScrollers
+ {
+   NSView *documentView = [_contentView documentView];
++  static const CGFloat fitSlack = 1.0;
+   NSSize documentSize;
+   NSSize clipSize;
+   CGFloat innerBorderWidth;
+@@ -880,6 +881,16 @@ static CGFloat scrollerWidth;
+   availWidth = clipSize.width + (_hasVertScroller ? footprint : 0.0);
+   availHeight = clipSize.height + (_hasHorizScroller ? footprint : 0.0);
+ 
++  /* A document view that sizes itself to the clip view, a table view for
++     instance, can come out a fraction of a point larger than the area it is
++     shown in: at a fractional scale factor the two roundings need not agree.
++     Read as "does not fit" that fraction shows a scroller, which takes the
++     space away again, so the document view sizes itself down and the
++     scroller goes - and the two keep swapping sizes until the stack is
++     gone.  Less than a point does not fit a scroller either way. */
++  availWidth += fitSlack;
++  availHeight += fitSlack;
++
+   /* Only an axis that the client asked to scroll may get a scroller. Gating
+      each axis by its requested flag also keeps a disabled axis out of the
+      coupling below, so it does not reserve space for a scroller that will not
