@@ -58,6 +58,9 @@ cd "$SYSTEM"
 # notification center the Workspace must reach at startup. Both are started
 # here rather than left to the Workspace, which would give up on them before
 # their registration through Wine's network stack is done.
+# gdomap's port 538 is privileged; this override is honoured by gdomap and
+# by every process looking it up, so the test needs no root.
+export GDOMAP_PORT_OVERRIDE="${GDOMAP_PORT_OVERRIDE:-20538}"
 wine Library/Tools/defaults.exe write NSGlobalDomain NSPortIsMessagePort NO >/dev/null 2>&1
 wine Library/Tools/gdomap.exe -f -N >/dev/null 2>&1 &
 sleep 3
