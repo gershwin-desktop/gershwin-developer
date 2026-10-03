@@ -690,6 +690,16 @@ static void SetErr(NSString **err, NSString *m)
  * positions. */
 - (NSString *)modalWindowTitle:(NSString **)err
 {
+  return [self modalWindowTitle: err frame: NULL];
+}
+
+/* As above, and the modal window's frame when the app reports one (the
+ * "{x = ...}" last field of "<Class>|<title>|<frame>"); a zero rect when it
+ * does not.  A title never starts with "{x = ", so the last field is only
+ * taken as the frame when it looks like one. */
+- (NSString *)modalWindowTitle:(NSString **)err frame:(NSRect *)frame
+{
+  if (frame) *frame = NSZeroRect;
   if (pid_ == 0) { SetErr(err, @"no application target"); return nil; }
   NSString *reply = nil;
   for (int attempt = 0; attempt < 8; attempt++)
@@ -704,9 +714,43 @@ static void SetErr(NSString **err, NSString *m)
     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
   if ([reply isEqualToString: @"none"]) return nil;
   NSRange bar = [reply rangeOfString: @"|"];
-  if (bar.location != NSNotFound)
-    return [reply substringFromIndex: bar.location + 1];
-  return reply;
+  if (bar.location == NSNotFound) return reply;
+  NSString *rest = [reply substringFromIndex: bar.location + 1];
+  NSRange lastBar = [rest rangeOfString: @"|" options: NSBackwardsSearch];
+  if (lastBar.location != NSNotFound)
+    {
+      NSString *tail = [rest substringFromIndex: lastBar.location + 1];
+      if ([tail hasPrefix: @"{x = "])
+        {
+          if (frame) *frame = NSRectFromString(tail);
+          return [rest substringToIndex: lastBar.location];
+        }
+    }
+  return rest;
+}
+
+/* The modal window's frame, once it stops moving.  A sheet spends the first
+ * 0.2 s of its modal session sliding out from under the parent's titlebar
+ * (the theme animates it in 60 Hz steps), and a click computed from a frame
+ * taken mid-slide lands beside the button and the dialog stays up.  Two
+ * consecutive samples with the same frame mean the slide is over; a window
+ * that never settles within a second is reported as it is, so a script still
+ * sees the modal rather than hanging here. */
+- (BOOL)modalWindowSettled:(NSString **)err title:(NSString **)title
+{
+  NSRect last = NSZeroRect;
+  for (int sample = 0; sample < 16; sample++)
+    {
+      NSRect now;
+      NSString *mt = [self modalWindowTitle: err frame: &now];
+      if (mt == nil) return NO;
+      if (title) *title = mt;
+      if (NSIsEmptyRect(now)) return YES;   /* app without frame reporting */
+      if (sample > 0 && NSEqualRects(now, last)) return YES;
+      last = now;
+      usleep (60000);
+    }
+  return YES;
 }
 
 /* Switch an NSTabView to the tab item whose label matches, through DriveUI's
@@ -1657,9 +1701,11 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
     }
   if (role == DDSRoleModal)
     {
-      /* `modal` is answered by the app's modal state, not the widget tree. */
-      NSString *mt = [self modalWindowTitle: err];
-      if (mt == nil) return NO;
+      /* `modal` is answered by the app's modal state, not the widget tree,
+       * and only once the dialog has stopped sliding into place, so that the
+       * click a script issues next lands on the button it names. */
+      NSString *mt = nil;
+      if (![self modalWindowSettled: err title: &mt]) return NO;
       if (needle && ![self title: mt matches: needle]) return NO;
       return YES;
     }
