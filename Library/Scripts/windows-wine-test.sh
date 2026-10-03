@@ -62,10 +62,14 @@ cd "$SYSTEM"
 # by every process looking it up, so the test needs no root.
 export GDOMAP_PORT_OVERRIDE="${GDOMAP_PORT_OVERRIDE:-20538}"
 wine Library/Tools/defaults.exe write NSGlobalDomain NSPortIsMessagePort NO >/dev/null 2>&1
-wine Library/Tools/gdomap.exe -f -N >/dev/null 2>&1 &
+# gdomap serves the addresses it is given rather than whatever interfaces
+# Wine reports, so that the loopback the clients connect to is among them.
+printf '127.0.0.1\n' > "$WORK/gdomap-addresses"
+wine Library/Tools/gdomap.exe -f -N -d -a "$(winepath -w "$WORK/gdomap-addresses")" > "$OUT/wine-gdomap.log" 2>&1 &
 sleep 3
-wine Library/Tools/gdnc.exe >/dev/null 2>&1 &
+wine Library/Tools/gdnc.exe > "$OUT/wine-gdnc.log" 2>&1 &
 sleep 8
+echo "gdomap lookup of gdnc: $(wine Library/Tools/gdomap.exe -L gdnc 2>&1 | tr -d '\r' | tail -1)"
 
 echo "Starting the Workspace under $(wine --version 2>/dev/null)..."
 wine Applications/Workspace.app/Workspace.exe > "$OUT/wine-stdout.log" 2> "$OUT/wine-stderr.log" &
