@@ -358,6 +358,8 @@ if [ "$UITEST_SESSION" = "isolated" ]; then
   session_run env WS_PRELOAD="$WS_PRELOAD" sh -c '
     . /System/Library/Makefiles/GNUstep.sh
     eval $(dbus-launch --sh-syntax)
+    # GTK programs show their menus in Menu (Menu/GTKModule)
+    export GTK_PATH=/System/Library/Libraries/gtk-appmenu-do${GTK_PATH:+:$GTK_PATH} GTK_MODULES=gtk-appmenu-do
     /System/Library/CoreServices/Applications/Menu.app/Menu >/tmp/uitest_menu.log 2>&1 &
     /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >/tmp/uitest_wm.log 2>&1 &
     ${WS_PRELOAD:+env LD_PRELOAD=$WS_PRELOAD} /System/Applications/Workspace.app/Workspace >/tmp/uitest_ws.log 2>&1 &
