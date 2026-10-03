@@ -154,8 +154,9 @@ run_as_user "$UITEST_ISOLATED_USER" sh -c '
   . /System/Library/Makefiles/GNUstep.sh
   eval $(dbus-launch --sh-syntax)
   echo "$DBUS_SESSION_BUS_ADDRESS" > "$3_dbus.txt"
-  # GTK programs show their menus in Menu (Menu/GTKModule)
-  export GTK_PATH=/System/Library/Libraries/gtk-appmenu-do${GTK_PATH:+:$GTK_PATH} GTK_MODULES=gtk-appmenu-do
+  # GTK and Qt programs show their menus in Menu (Menu/ToolkitModules)
+  export GTK_PATH=/System/Library/Libraries/appmenu-do${GTK_PATH:+:$GTK_PATH} GTK_MODULES=gtk-appmenu-do
+  export QT_PLUGIN_PATH=/System/Library/Libraries/appmenu-do${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH} QT_QPA_PLATFORMTHEME=gad
   /System/Library/CoreServices/Applications/Menu.app/Menu >"$3_menu.log" 2>&1 &
   /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >"$3_wm.log" 2>&1 &
   /System/Applications/Workspace.app/Workspace >"$3_ws.log" 2>&1 &
