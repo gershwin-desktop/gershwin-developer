@@ -14,9 +14,9 @@
 #
 # Two things differ from a real Windows: Wine's mailslots do not carry
 # GNUstep's Distributed Objects, so the Wine prefix is set to socket ports
-# (NSPortIsMessagePort NO) and gdomap is started for them; and the prefix
-# has no Tahoma or Arial, which is why the Windows defaults name the
-# bundled fonts.
+# (NSPortIsMessagePort NO) and gdomap is started for them, which needs
+# port 538 (root, or see below); and the prefix has no Tahoma or Arial,
+# which is why the Windows defaults name the bundled fonts.
 set -e
 
 [ $# -ge 1 ] || { echo "usage: $0 <System dir or zip> [seconds] [screenshot.png]" >&2; exit 2; }
@@ -58,9 +58,10 @@ cd "$SYSTEM"
 # notification center the Workspace must reach at startup. Both are started
 # here rather than left to the Workspace, which would give up on them before
 # their registration through Wine's network stack is done.
-# gdomap's port 538 is privileged; this override is honoured by gdomap and
-# by every process looking it up, so the test needs no root.
-export GDOMAP_PORT_OVERRIDE="${GDOMAP_PORT_OVERRIDE:-20538}"
+# gdomap listens on port 538, which is privileged on Linux: run this as
+# root, or let users bind it first with
+#   sysctl -w net.ipv4.ip_unprivileged_port_start=538
+# (the port is compiled into gnustep-base, there is no run-time override).
 wine Library/Tools/defaults.exe write NSGlobalDomain NSPortIsMessagePort NO >/dev/null 2>&1
 # gdomap serves the addresses it is given rather than whatever interfaces
 # Wine reports: the loopback, and the machine's own addresses, since a
