@@ -8,17 +8,15 @@ name: Build Gershwin System (Windows)
 # sources, install-system-domain.sh builds into /System (a directory inside
 # the MSYS2 root). No X11, D-Bus, libdispatch or libs-av on Windows.
 
+# Manual only: a Windows build is expensive, so it is started on demand.
 on:
-  push:
-    branches: [main, dev, windows]
-  pull_request:
   workflow_dispatch:
 
 env:
-  # The Windows port of the Gershwin repositories lives on their "windows"
-  # branches until it lands in dev: checkout.sh uses that branch wherever a
-  # repository has one and the default branch everywhere else.
-  BRANCH: windows
+  # The Windows port has landed in dev in every Gershwin repository: checkout.sh
+  # uses this branch wherever a repository has it and the default branch
+  # everywhere else.
+  BRANCH: dev
 
   # Repositories the Windows build does not use, so checkout.sh does not clone
   # them: no libdispatch and libs-av (see install-system-domain.sh), and none
