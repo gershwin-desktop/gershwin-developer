@@ -1,13 +1,26 @@
 #!/bin/sh
 
-# Check if the script is run as root
-if [ "$(id -u)" -ne 0 ]; then
-    echo "This script must be run as root."
-    exit 1
-fi
+# Check if the script is run as root. On Windows (MSYS2) the build is a
+# per-user affair - pacman and the /System tree live inside the MSYS2 root, so
+# there is no root user to require.
+case "$(uname -s)" in
+  MINGW*|MSYS*) ;;
+  *)
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "This script must be run as root."
+        exit 1
+    fi
+    ;;
+esac
 
-# Detect OS
-if [ -f /etc/os-release ]; then
+# Detect OS. MSYS2 has no /etc/os-release, so the Windows check comes first.
+case "$(uname -s)" in
+  MINGW*|MSYS*) OS_ID="windows" ;;
+  *) OS_ID="" ;;
+esac
+if [ -n "$OS_ID" ]; then
+    :
+elif [ -f /etc/os-release ]; then
     . /etc/os-release
     OS_ID="$ID"
     OS_LIKE="$ID_LIKE"
@@ -142,6 +155,27 @@ case "$OS_ID" in
     if [ -n "$missing" ]; then
       echo "Installing:$missing"
       pkg install -y $missing
+    else
+      echo "All required packages are already installed."
+    fi
+    ;;
+
+  windows)
+    # MSYS2: one pacman for both the MSYS-side tools and the mingw-w64 native
+    # packages. --needed skips what is already installed, so this is cheap to
+    # re-run. Comment lines and blank lines in the requirements file are skipped.
+    while IFS= read -r pkg || [ -n "$pkg" ]; do
+      pkg="${pkg%%#*}"
+      pkg="$(echo "$pkg" | xargs)"
+      [ -z "$pkg" ] && continue
+      if ! pacman -Qi "$pkg" >/dev/null 2>&1; then
+        missing="$missing $pkg"
+      fi
+    done < "$REQUIREMENTS_FILE"
+
+    if [ -n "$missing" ]; then
+      echo "Installing:$missing"
+      pacman -S --needed --noconfirm $missing
     else
       echo "All required packages are already installed."
     fi

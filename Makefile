@@ -6,11 +6,16 @@
 	systempreferences eau-theme terminal textedit windowmanager components \
 	tooling test uninstall
 
+# On Windows (MSYS2) there is no root: /System lives inside the MSYS2 root and
+# the build runs as the logged-in user, so the check is skipped there.
 check_root:
-	@if [ `id -u` -ne 0 ]; then \
-		echo "This Makefile must be run as root or with sudo."; \
-		exit 1; \
-	fi
+	@case "`uname -s`" in \
+	  MINGW*|MSYS*) ;; \
+	  *) if [ `id -u` -ne 0 ]; then \
+	       echo "This Makefile must be run as root or with sudo."; \
+	       exit 1; \
+	     fi ;; \
+	esac
 
 install: system
 

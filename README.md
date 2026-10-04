@@ -12,6 +12,7 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 * Debian
 * Devuan (Debian without systemd)
 * Void Linux (runit)
+* Windows (MSYS2 MINGW64, see below)
 
 ## Requirements for building
 
@@ -96,6 +97,56 @@ cd /Developer
 make corelibs
 make workspace
 ```
+
+## Building on Windows
+
+The Windows build is the same scripts inside an MSYS2 MINGW64 shell with the
+mingw-w64 clang toolchain (the gnustep-2.x ABI needs clang and lld there as
+everywhere else). `/System` is a directory inside the MSYS2 root, so no root
+is needed:
+
+```
+pacman -S git make
+git clone https://github.com/gershwin-desktop/gershwin-developer.git
+cd gershwin-developer
+./Library/Scripts/bootstrap.sh      # pacman installs Library/OSSupport/windows.txt
+./Library/Scripts/checkout.sh
+make corelibs
+make workspace
+```
+
+What the Windows domain contains: libobjc2, tools-make, libs-base, libs-gui
+and libs-back (win32 window server drawing through cairo), all with the
+patches from `Library/Patches/`, GNUstep's WinUXTheme (the native Windows
+look, set as the default theme), plus the fonts and pictures from
+gershwin-assets. Not on Windows: gershwin-system (X session scripts),
+libdispatch, libs-av, the plistupdate hook, D-Bus, and the desktop
+components other than the Workspace.
+
+`.github/workflows/build-windows.yml` runs this on GitHub Actions. After
+`make corelibs` it publishes the self-contained core system (with the MinGW
+runtime DLLs bundled by `Library/Scripts/windows-bundle-runtime.sh`) as
+`Gershwin-System-Windows-x86_64-<id>.zip` on the rolling `windows-system`
+release, where `<id>` is `Library/Scripts/windows-system-id.sh`, a hash of
+the pins, patches, scripts and package list. The CI of gershwin-workspace
+(and of other components in the future) downloads the zip with the id of the
+gershwin-developer it builds with, and only builds the stack itself when no
+such zip exists yet. It then builds the Workspace on top and uploads the
+whole `/System` as the workflow artifact.
+
+A Windows build can be tried on a Unix machine with Wine, no Windows
+needed, using the zip either workflow uploads:
+
+```
+sh Library/Scripts/windows-wine-test.sh Gershwin-Workspace-Windows-*.zip
+```
+
+It unpacks the tree into a fresh Wine prefix, starts the Workspace, reports
+whether it is still running after 45 seconds and leaves a screenshot. Wine
+differs from Windows in two ways the script papers over: its mailslots do
+not carry GNUstep's Distributed Objects (the prefix is set to socket ports
+and gdomap), and it has no Windows fonts (the bundled fonts are the Windows
+defaults).
 
 ## Pinned upstream libraries
 
