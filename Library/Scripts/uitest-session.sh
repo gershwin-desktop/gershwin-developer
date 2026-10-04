@@ -156,7 +156,9 @@ run_as_user "$UITEST_ISOLATED_USER" sh -c '
   echo "$DBUS_SESSION_BUS_ADDRESS" > "$3_dbus.txt"
   # GTK and Qt programs show their menus in Menu (Menu/ToolkitModules)
   export GTK_PATH=/System/Library/Libraries/appmenu-do${GTK_PATH:+:$GTK_PATH} GTK_MODULES=gtk-appmenu-do
-  export QT_PLUGIN_PATH=/System/Library/Libraries/appmenu-do${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH} QT_QPA_PLATFORMTHEME=gad
+  export QT_PLUGIN_PATH=/System/Library/Libraries/appmenu-do${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
+  # gad first: it only starts the menu module and leaves the theme to the next name
+  case ":$QT_QPA_PLATFORMTHEME:" in *:gad:*) ;; *) export QT_QPA_PLATFORMTHEME=gad${QT_QPA_PLATFORMTHEME:+:$QT_QPA_PLATFORMTHEME} ;; esac
   export GIO_EXTRA_MODULES=/System/Library/Libraries/appmenu-do/gio/modules${GIO_EXTRA_MODULES:+:$GIO_EXTRA_MODULES}
   /System/Library/CoreServices/Applications/Menu.app/Menu >"$3_menu.log" 2>&1 &
   /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >"$3_wm.log" 2>&1 &
