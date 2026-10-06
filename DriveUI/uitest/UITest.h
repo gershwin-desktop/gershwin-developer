@@ -70,11 +70,15 @@ typedef enum
   DDSCmdHover,
   DDSCmdScroll,
   DDSCmdDrag,
+  DDSCmdGrab,
+  DDSCmdMovePointer,
+  DDSCmdReleasePointer,
   DDSCmdType,
   DDSCmdClear,
   DDSCmdPress,
   DDSCmdPressKey,
   DDSCmdRun,
+  DDSCmdShell,
   DDSCmdWait,
   DDSCmdWaitUntil,
   DDSCmdAssert,
@@ -96,6 +100,7 @@ typedef enum
   DDSRoleApplication,
   DDSRoleWindow,
   DDSRoleXWindow,
+  DDSRoleTitlebar,
   DDSRoleDialog,
   DDSRoleModal,
   DDSRoleSidebar,
@@ -125,6 +130,7 @@ typedef enum
 
 NSString *UITestRoleClassName(UITestRole role);   /* maps a role to an ObjC class filter */
 UITestRole UITestRoleFromName(NSString *name);    /* maps the UITest role keyword to UITestRole */
+NSArray *UITestXWindowMeasures(void);              /* count, x, y, width, height */
 NSString *UITestRoleName(UITestRole role);        /* maps a role back to its UITest keyword */
 
 typedef enum
@@ -156,6 +162,7 @@ typedef enum
   UITestAssertKind assertKind_;
   NSString *string_;       /* the quoted main string (title/text/path)   */
   NSString *string2_;      /* optional second string (e.g. assert target) */
+  UITestRole role2_;       /* optional second role (drag ... onto <role> "...") */
   NSString *windowTitle_;  /* optional "in window \"Title\"" scope        */
   UITestRole waitRole_;    /* compound "... and wait until <role>" target */
   int clickButton_;        /* compound verb's pointer button (1=left,3=right) */
@@ -172,6 +179,7 @@ typedef enum
 @property UITestAssertKind assertKind;
 @property (retain) NSString *string;
 @property (retain) NSString *string2;
+@property UITestRole role2;
 @property (retain) NSString *windowTitle;
 @property UITestRole waitRole;
 @property int clickButton;
@@ -257,6 +265,12 @@ typedef enum
         direction:(NSString *)direction amount:(int)amount error:(NSString **)err;
 - (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
             byX:(double)dx byY:(double)dy error:(NSString **)err;
+
+/* Press at one widget and release over another: the drop gesture, aimed at
+   the destination's centre rather than a pixel offset. */
+- (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
+        ontoRole:(UITestRole)role2 title:(NSString *)title2
+            hold:(NSTimeInterval)hold error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
 - (BOOL)selectTabItem:(NSString *)label inWindow:(NSString *)windowTitle
                 error:(NSString **)err;
@@ -264,8 +278,24 @@ typedef enum
                 error:(NSString **)err;
 - (BOOL)assertMenuItemPath:(NSString *)path kind:(UITestAssertKind)kind
                   shortcut:(NSString *)shortcut error:(NSString **)err;
-- (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
-                  expected:(int)expected error:(NSString **)err;
+/* measure is "count" (windows whose title contains `title`) or one of "x",
+ * "y", "width", "height" (the first such window's on-screen frame, titlebar
+ * included, in pixels from the top-left of the screen). */
+- (BOOL)measureXWindow:(NSString *)title measure:(NSString *)measure
+                 value:(int *)value error:(NSString **)err;
+- (BOOL)assertXWindow:(NSString *)title measure:(NSString *)measure
+                   op:(NSString *)op expected:(int)expected error:(NSString **)err;
+/* Window decorations are drawn by the window manager and belong to no
+ * application's widget tree; these drive them through the X server.  The
+ * button stays down between grab and release, so a script can check what
+ * the window manager shows while a window is still being dragged. */
+- (BOOL)grabTitlebar:(NSString *)title error:(NSString **)err;
+- (BOOL)movePointerByX:(double)dx y:(double)dy error:(NSString **)err;
+- (BOOL)movePointerToEdge:(NSString *)edge error:(NSString **)err;
+- (BOOL)releasePointer:(NSString **)err;
+/* button is "close", "minimize" or "zoom", placed by the window manager. */
+- (BOOL)clickTitlebarButton:(NSString *)button ofWindow:(NSString *)title
+                      error:(NSString **)err;
 - (BOOL)menuBarHasItem:(NSString *)title exists:(BOOL)exists error:(NSString **)err;
 - (int)countXWindowsWithTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;
@@ -319,6 +349,8 @@ typedef enum
   NSMutableString *log_;
   NSMutableDictionary *macros_; /* macro name -> body (built before running) */
   NSMutableDictionary *frameRefs_; /* window title -> first observed frame */
+  BOOL pointerGrabbed_;   /* a `grab` is not yet followed by `release pointer` */
+  NSDate *startedAt_;     /* when the script started; older logs are not ours */
 }
 - (id)initWithProgram:(UITestProgram *)program engine:(UITestQueryEngine *)engine;
 - (int)run;

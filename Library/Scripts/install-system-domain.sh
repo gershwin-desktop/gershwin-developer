@@ -58,6 +58,33 @@ if [ "$(uname -s)" = "OpenBSD" ]; then
   export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 fi
 
+# Windows: the build runs in an MSYS2 MINGW64 shell with the mingw-w64 clang
+# toolchain, and /System is a directory inside the MSYS2 root (for the shell
+# and make it is /System; for native programs such as cmake and the compiled
+# binaries it is <msys2 root>\System).
+#   - The gnustep-2.x ABI needs lld, and libobjc2's exception handling defers
+#     to the C++ runtime, so both are linked into everything. Exported once so
+#     tools-make records them and every later configure inherits them.
+#   - PATH gets /System/Library/Tools early: on Windows the DLLs live next to
+#     the tools, and configure's link/run tests need to find them before
+#     GNUstep.sh exists.
+#   - Native tools get the Windows spelling of /System (cygpath -m) because
+#     cmake cannot resolve MSYS2 paths.
+#   - The library builds get a few clang warnings demoted the way the MSYS2
+#     packages of gnustep-base/-gui/-back do: the upstream code has no Windows
+#     CI and trips them under a recent clang.
+WINDOWS=0
+if [ "$PLATFORM" = "windows" ]; then
+  WINDOWS=1
+  export LDFLAGS="${LDFLAGS:+$LDFLAGS }-fuse-ld=lld -lstdc++ -lgcc_s"
+  export PATH="/System/Library/Tools:$PATH"
+  SYSTEM_W="$(cygpath -m /System)"
+  # -g so a crash on Windows gives a readable backtrace under gdb; DWARF
+  # sections cost nothing at run time.
+  WIN_OBJCFLAGS="-g -Wno-error=incompatible-pointer-types -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast -Wno-format"
+  mkdir -p /System/Library/Headers /System/Library/Libraries /System/Library/Tools
+fi
+
 # Source the GNUstep environment, which is installed by the corelibs stage via
 # tools-make.  The corelibs stage sources it itself at the right moment, so this
 # is only used by the individual app/component stages when they are run on their
@@ -72,13 +99,41 @@ ensure_gnustep_env() {
   export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 }
 
-build_corelibs() {
+# --- corelibs, split into one build_<repo>/install_<repo> pair per
+# repository so Software Update can run "build-repo <name>" then
+# "install-repo <name>" with a rollback point in between. build_corelibs/
+# install_corelibs (below) call these in the original order for the existing
+# "make corelibs"/"make all" entry points, so nothing here changes what CI runs
+# - only how finely it can be driven.
+#
+# GNUstep itself does not exist yet until tools-make is installed, so the
+# functions up to and including tools-make export GNUSTEP_INSTALLATION_DOMAIN
+# by hand instead of sourcing GNUstep.sh; everything from libobjc2 onward
+# calls ensure_gnustep_env like every other top-level target.
+
+build_gershwin_system() {
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+  cd "$REPOS_DIR/gershwin-system"
+  $MAKE_CMD
+}
+
+install_gershwin_system() {
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
   cd "$REPOS_DIR/gershwin-system"
   $MAKE_CMD install
-  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+}
 
+build_gershwin_assets() {
+  : # nothing to build; gershwin-assets is a plain copy, done on install
+}
+
+install_gershwin_assets() {
   cd "$REPOS_DIR/gershwin-assets"
   cp -R Library/* /System/Library/
+}
+
+build_libdispatch() {
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
   # Patch libdispatch (FreeBSD timer-spin fix; harmless on other platforms).
   echo "Patching libdispatch..."
@@ -90,7 +145,7 @@ build_corelibs() {
   # <mach/mach.h> system-wide, so libdispatch's `#if __has_include(<mach/mach.h>)`
   # guards auto-enable the Darwin Mach/QoS (direct-knote) event backend. That
   # backend is wrong for FreeBSD's kqueue (0x0100 == EV_FORCEONESHOT; udata is not
-  # part of knote identity) and breaks GNUstep's fd-based dispatch sources — most
+  # part of knote identity) and breaks GNUstep's fd-based dispatch sources - most
   # visibly, the global menu's WindowMonitor never tracks the frontmost app.
   # So on NextBSD we force those guards off to reproduce the stock non-Mach build
   # and install it to /System/Library/Libraries, which Gershwin binaries' RUNPATH
@@ -105,8 +160,7 @@ build_corelibs() {
     DISPATCH_EXTRA_FLAGS="-DHAVE_MACH=OFF"
   fi
 
-  # Build libdispatch first - provides BlocksRuntime needed by tools-make configure
-  echo "Building/installing libdispatch..."
+  echo "Building libdispatch..."
   if [ -d "$REPOS_DIR/swift-corelibs-libdispatch/Build" ] ; then
     rm -rf "$REPOS_DIR/swift-corelibs-libdispatch/Build"
   fi
@@ -117,7 +171,7 @@ build_corelibs() {
   # $CMAKE_SYSTEM_FLAG (-DCMAKE_SYSTEM_NAME=FreeBSD on NextBSD, empty elsewhere):
   # without it CMake can't match NextBSD's uname to a platform module, so it never
   # sets CMAKE_SHARED_LIBRARY_SONAME_C_FLAG and emits libBlocksRuntime.so with no
-  # SONAME — which makes libdispatch record a build-relative NEEDED
+  # SONAME - which makes libdispatch record a build-relative NEEDED
   # (../libBlocksRuntime.so) that fails to load. Telling CMake it's FreeBSD lets it
   # set the soname itself, exactly like the base and libobjc2 builds do.
   cmake .. \
@@ -135,15 +189,43 @@ build_corelibs() {
     $DISPATCH_EXTRA_FLAGS
 
   "$MAKE_CMD" -j"$CPUS" || exit 1
+}
+
+install_libdispatch() {
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+  cd "$REPOS_DIR/swift-corelibs-libdispatch/Build"
   "$MAKE_CMD" install || exit 1
+}
+
+build_toolsmake() {
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
 
   # Build tools-make - can now find _Block_copy in libdispatch's BlocksRuntime
   # Use libobjc_LIBS=" " to prevent configure from adding -lobjc to link tests
-  echo "Building/installing tools-make..."
+  echo "Building tools-make..."
   cd "$REPOS_DIR/tools-make"
   $MAKE_CMD distclean 2>/dev/null || true
+  if [ "$WINDOWS" -eq 1 ]; then
+    # libobjc2 is already installed here (see build_libobjc2_windows), so no
+    # need to keep -lobjc out of the configure link tests. The gershwin layout
+    # and its POSIX /System paths are what tools-make wants on Windows too:
+    # it requires unix-style paths in GNUstep.conf, and libs-base rewrites
+    # them relative to its DLL for the native programs at its configure time.
+    # --prefix=/ because MSYS2's config.site defaults the prefix to /mingw64
+    # and tools-make prepends the prefix to every layout path.
+    ./configure \
+      --prefix=/ \
+      --with-config-file=/System/Library/Preferences/GNUstep.conf \
+      --with-layout=gershwin \
+      --with-library-combo=ng-gnu-gnu \
+      CC=clang CXX=clang++ \
+      LDFLAGS="-L/System/Library/Libraries $LDFLAGS" \
+      CPPFLAGS="-I/System/Library/Headers"
+    $MAKE_CMD || exit 1
+    return
+  fi
   # $BUILD_FLAG is --build=<arch>-nextbsd-freebsd on NextBSD (config.guess can't
-  # recognize NextBSD's uname), empty elsewhere — harmless on FreeBSD/Linux.
+  # recognize NextBSD's uname), empty elsewhere - harmless on FreeBSD/Linux.
   ./configure \
     $BUILD_FLAG \
     --with-config-file=/System/Library/Preferences/GNUstep.conf \
@@ -154,12 +236,22 @@ build_corelibs() {
     CPPFLAGS="-I/System/Library/Headers" \
     libobjc_LIBS=" "
   $MAKE_CMD || exit 1
+}
+
+install_toolsmake() {
+  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+  cd "$REPOS_DIR/tools-make"
   $MAKE_CMD install
+}
 
-  . /System/Library/Makefiles/GNUstep.sh
+build_libobjc2() {
+  if [ "$WINDOWS" -eq 1 ]; then
+    build_libobjc2_windows
+    return
+  fi
+  ensure_gnustep_env
 
-  # Build libobjc2 - gnustep-config now available for paths
-  echo "Building/installing libobjc2..."
+  echo "Building libobjc2..."
   if [ -d "$REPOS_DIR/libobjc2/Build" ] ; then
     rm -rf "$REPOS_DIR/libobjc2/Build"
   fi
@@ -177,10 +269,53 @@ build_corelibs() {
     -DBlocksRuntime_LIBRARIES=/System/Library/Libraries/libBlocksRuntime.so
 
   "$MAKE_CMD" -j"$CPUS" || exit 1
+}
+
+install_libobjc2() {
+  if [ "$WINDOWS" -eq 1 ]; then
+    cd "$REPOS_DIR/libobjc2/Build"
+    ninja install || exit 1
+    # libobjc2 installs its headers under include/ when it is not told the
+    # GNUstep layout (it cannot be: tools-make does not exist yet). GNUstep
+    # looks in Headers, so move them there.
+    if [ -d /System/Library/include ]; then
+      cp -R /System/Library/include/. /System/Library/Headers/
+      rm -rf /System/Library/include
+    fi
+    return
+  fi
+  ensure_gnustep_env
+  cd "$REPOS_DIR/libobjc2/Build"
   "$MAKE_CMD" install || exit 1
+}
 
-  export GNUSTEP_INSTALLATION_DOMAIN="SYSTEM"
+# On Windows there is no libdispatch, so libobjc2 keeps its embedded blocks
+# runtime, and it is built before tools-make (whose configure needs an
+# Objective-C runtime and _Block_copy to link its tests) - the reverse of the
+# other platforms, where libdispatch's BlocksRuntime comes first. Ninja and
+# explicit install directories, because without tools-make there is no
+# gnustep-config for the GNUSTEP_INSTALL_TYPE=SYSTEM lookup. The DLL goes to
+# Tools (that is where tools-make puts DLLs on Windows and what GNUstep.sh
+# puts on PATH), the import library to Libraries.
+build_libobjc2_windows() {
+  echo "Building libobjc2 (Windows)..."
+  rm -rf "$REPOS_DIR/libobjc2/Build"
+  mkdir -p "$REPOS_DIR/libobjc2/Build"
+  cd "$REPOS_DIR/libobjc2/Build"
+  cmake .. -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DGNUSTEP_INSTALL_TYPE=NONE \
+    -DCMAKE_INSTALL_PREFIX="$SYSTEM_W/Library" \
+    -DCMAKE_INSTALL_LIBDIR=Libraries \
+    -DCMAKE_INSTALL_BINDIR=Tools \
+    -DTESTS=OFF
+  ninja || exit 1
+}
 
+build_libsbase() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/libs-base"
 
   # Patch libs-base (64-bit _4CF main-queue handle fix for Apple libdispatch;
@@ -189,6 +324,12 @@ build_corelibs() {
   echo "Patching libs-base..."
   patch.sh libs-base
 
+  if [ "$WINDOWS" -eq 1 ]; then
+    # No libdispatch on Windows (upstream does not use it there either).
+    ./configure --disable-libdispatch
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+    return
+  fi
   if [ "$NEXTBSD" -eq 1 ]; then
     # NextBSD ships libdns_sd (the mDNSResponder DNS-SD client) in
     # /usr/lib/system, which is on binaries' runtime RUNPATH but is NOT a
@@ -214,8 +355,89 @@ build_corelibs() {
       --with-dispatch-library=/System/Library/Libraries
   fi
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_libsbase() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/libs-base"
   $MAKE_CMD install
   $MAKE_CMD clean
+  if [ "$WINDOWS" -eq 1 ]; then
+    write_windows_runtime_config
+  fi
+}
+
+# On Windows gnustep-base reads its configuration from GNUstep.conf next to
+# its own DLL (in Library/Tools) and resolves "./" and "../" entries relative
+# to that file, so this one file makes the whole /System tree self-locating
+# wherever it is unpacked. Without it the layout gnustep-base compiled in
+# is used, and that spells the tools and library directories as bare "." and
+# "..", which it does not resolve - the System domain then collapses to the
+# current directory. The Preferences/GNUstep.conf written by tools-make has
+# the absolute MSYS2 paths and is only used by the build.
+write_windows_runtime_config() {
+  cat > /System/Library/Tools/GNUstep.conf <<'EOF_CONF'
+# Gershwin on Windows: runtime configuration for gnustep-base, relative to
+# this file. See gershwin-developer's install-system-domain.sh.
+GNUSTEP_MAKEFILES=../Makefiles
+GNUSTEP_USER_DEFAULTS_DIR=Library/Preferences
+GNUSTEP_USER_CONFIG_FILE=Library/Preferences/GNUstep.conf
+GNUSTEP_SYSTEM_APPS=../../Applications
+GNUSTEP_SYSTEM_ADMIN_APPS=../../Applications/Admin
+GNUSTEP_SYSTEM_WEB_APPS=../WebApplications
+GNUSTEP_SYSTEM_TOOLS=./
+GNUSTEP_SYSTEM_ADMIN_TOOLS=./Admin
+GNUSTEP_SYSTEM_LIBRARY=../
+GNUSTEP_SYSTEM_HEADERS=../Headers
+GNUSTEP_SYSTEM_LIBRARIES=../Libraries
+GNUSTEP_SYSTEM_DOC=../Documentation
+GNUSTEP_SYSTEM_DOC_MAN=../Documentation/man
+GNUSTEP_SYSTEM_DOC_INFO=../Documentation/info
+EOF_CONF
+  # System-wide defaults live in a GlobalDefaults directory next to the
+  # configuration file gnustep-base actually read, so on Windows next to
+  # this one rather than under Preferences as gershwin-system has them.
+  # The native Windows theme, the Gershwin defaults that apply here, and
+  # the bundled fonts as the defaults: without them the backend looks for
+  # Tahoma or DejaVu, which a machine (or a Wine prefix) may not have, and
+  # falls back to a Helvetica that no font is called.
+  mkdir -p /System/Library/Tools/GlobalDefaults
+  cat > /System/Library/Tools/GlobalDefaults/NSGlobalDomain.plist <<'EOF_PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>GSTheme</key>
+    <string>WinUXTheme</string>
+    <key>GSFileBrowserHideDotFiles</key>
+    <string>YES</string>
+    <key>NSUseRunningCopy</key>
+    <integer>1</integer>
+    <key>GSAppOwnsMiniwindow</key>
+    <integer>0</integer>
+    <key>GSSuppressAppIcon</key>
+    <integer>1</integer>
+    <key>GSFilenameExtensionDisplayMode</key>
+    <string>2</string>
+    <key>NSFont</key>
+    <string>Inter-Medium</string>
+    <key>NSFontSize</key>
+    <string>13.0</string>
+    <key>NSBoldFont</key>
+    <string>Inter-Bold</string>
+    <key>NSUserFont</key>
+    <string>Inter-Medium</string>
+    <key>NSFixedPitchFont</key>
+    <string>LuxiMono</string>
+    <key>NSUserFixedPitchFont</key>
+    <string>LuxiMono</string>
+</dict>
+</plist>
+EOF_PLIST
+}
+
+build_libsgui() {
+  ensure_gnustep_env
 
   # Patch libs-gui
   echo "Patching libs-gui..."
@@ -223,9 +445,22 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libs-gui"
   ./configure $BUILD_FLAG
+  if [ "$WINDOWS" -eq 1 ]; then
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+    return
+  fi
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_libsgui() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/libs-gui"
   $MAKE_CMD install
   $MAKE_CMD clean
+}
+
+build_libsback() {
+  ensure_gnustep_env
 
   # Patch libs-back
   echo "Patching libs-back..."
@@ -233,17 +468,45 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libs-back"
   export fonts=no
+  if [ "$WINDOWS" -eq 1 ]; then
+    # The win32 window server (libs-back's default on mingw) drawing through
+    # cairo, the same combination MSYS2 packages.
+    ./configure --enable-graphics=cairo
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+    return
+  fi
   ./configure $BUILD_FLAG
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_libsback() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/libs-back"
+  export fonts=no
+  if [ "$WINDOWS" -eq 1 ]; then
+    $MAKE_CMD install OBJCFLAGS="$WIN_OBJCFLAGS"
+    $MAKE_CMD clean
+    # The plistupdate hook is skipped on Windows: the rule it injects is
+    # guarded with "command -v plistupdate || true", so nothing later misses it.
+    return
+  fi
   $MAKE_CMD install
   $MAKE_CMD clean
 
-  # Hook into tools-make to inject build time and git hash into Info-gnustep.plist files
+  # Hook into tools-make to inject build time and git hash into
+  # Info-gnustep.plist files. This is an internal build-time helper living
+  # inside the gershwin-components tree (not a repository of its own), needed
+  # from here on by every later build, so it is tied to libs-back's install
+  # rather than exposed as a separate build-repo/install-repo target.
   cd "$REPOS_DIR/gershwin-components/plistupdate"
   $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
   $MAKE_CMD install
   sh -e ./setup-integration.sh
   $MAKE_CMD clean
+}
+
+build_libsav() {
+  ensure_gnustep_env
 
   # Patch libs-av
   echo "Patching libs-av..."
@@ -251,11 +514,58 @@ build_corelibs() {
 
   cd "$REPOS_DIR/libs-av"
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_libsav() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/libs-av"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
+# The native Windows look: GNUstep's WinUXTheme draws through the Windows
+# theme engine (uxtheme). Windows only; the other platforms have no build
+# step for it.
+build_winuxtheme() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/plugins-themes-WinUXTheme"
+  $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
+}
+
+install_winuxtheme() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/plugins-themes-WinUXTheme"
+  $MAKE_CMD install OBJCFLAGS="$WIN_OBJCFLAGS"
+  $MAKE_CMD clean
+}
+
+build_corelibs() {
+  if [ "$WINDOWS" -eq 1 ]; then
+    # No gershwin-system (X session scripts and Unix defaults), no libdispatch,
+    # no libs-av (ffmpeg): the Windows domain is the GNUstep stack plus the
+    # fonts and pictures. libobjc2 before tools-make, see build_libobjc2_windows.
+    build_gershwin_assets;   install_gershwin_assets
+    build_libobjc2;          install_libobjc2
+    build_toolsmake;         install_toolsmake
+    build_libsbase;          install_libsbase
+    build_libsgui;           install_libsgui
+    build_libsback;          install_libsback
+    build_winuxtheme;        install_winuxtheme
+    return
+  fi
+  build_gershwin_system;   install_gershwin_system
+  build_gershwin_assets;   install_gershwin_assets
+  build_libdispatch;       install_libdispatch
+  build_toolsmake;         install_toolsmake
+  build_libobjc2;          install_libobjc2
+  build_libsbase;          install_libsbase
+  build_libsgui;           install_libsgui
+  build_libsback;          install_libsback
+  build_libsav;            install_libsav
+}
+
 build_workspace() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/gershwin-workspace"
   # OpenBSD ships autoconf and automake with version-suffixed binaries;
   # autoreconf needs these env vars to pick the right versions.
@@ -267,27 +577,53 @@ build_workspace() {
     echo "Using AUTOCONF_VERSION=$AUTOCONF_VERSION AUTOMAKE_VERSION=$AUTOMAKE_VERSION"
   fi
   autoreconf -fi
+  if [ "$WINDOWS" -eq 1 ]; then
+    # No D-Bus, AppImage/squashfs, libdispatch or the sqlite-backed metadata
+    # indexer on Windows; the workspace's own GNUmakefiles leave out the X11
+    # and Unix-only parts when GNUSTEP_TARGET_OS is mingw.
+    ./configure --disable-dbus --disable-squashfs --disable-libdispatch --disable-gwmetadata
+    $MAKE_CMD -j"$CPUS" OBJCFLAGS="-g" || exit 1
+    return
+  fi
   ./configure $BUILD_FLAG
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_workspace() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-workspace"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
 build_systempreferences() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/gershwin-systempreferences"
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_systempreferences() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-systempreferences"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
 build_eau_theme() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/gershwin-eau-theme"
   $MAKE_CMD -j"$CPUS" || exit 1
+}
+
+install_eau_theme() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-eau-theme"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
 build_terminal() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/gershwin-terminal"
   # On glibc based Linux systems, -liconv should not be used as iconv is part of glibc
   # TODO: Port this fix to GNUmakefile.preamble properly
@@ -297,28 +633,51 @@ build_terminal() {
   else
     $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
   fi
+}
+
+install_terminal() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-terminal"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
 build_textedit() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/gershwin-textedit"
   $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+}
+
+install_textedit() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-textedit"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
 build_windowmanager() {
+  ensure_gnustep_env
   cd "$REPOS_DIR/gershwin-windowmanager/"
   $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+}
+
+install_windowmanager() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-windowmanager/"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
 
 build_components() {
+  ensure_gnustep_env
   # Components with a .DISABLED file in their directory will not be built
   cd "$REPOS_DIR/gershwin-components/"
   $MAKE_CMD CPPFLAGS="-DGNUSTEP_INSTALL_TYPE=SYSTEM" -j"$CPUS" || exit 1
+}
+
+install_components() {
+  ensure_gnustep_env
+  cd "$REPOS_DIR/gershwin-components/"
   $MAKE_CMD install
   $MAKE_CMD clean
 }
@@ -355,44 +714,121 @@ build_ui_test_fixtures() {
   fi
 }
 
+# Map a Repositories.plist repository Name to its build_/install_ function.
+# Shared by the granular "build-repo"/"install-repo" entry points (used by
+# Software Update, which runs build then install per repository with a
+# rollback point in between) and by the coarse per-target/"all" cases below,
+# so both paths run the exact same code. gershwin-developer, docs and the
+# wiki are metadata/content repositories with no build step; libs-steptalk is
+# pinned and cloned but has no build stage yet either.
+build_one_repo() {
+  case "$1" in
+    gershwin-system)            build_gershwin_system ;;
+    gershwin-assets)            build_gershwin_assets ;;
+    swift-corelibs-libdispatch) build_libdispatch ;;
+    tools-make)                 build_toolsmake ;;
+    libobjc2)                   build_libobjc2 ;;
+    libs-base)                  build_libsbase ;;
+    libs-gui)                   build_libsgui ;;
+    libs-back)                  build_libsback ;;
+    libs-av)                    build_libsav ;;
+    gershwin-systempreferences) build_systempreferences ;;
+    gershwin-workspace)         build_workspace ;;
+    gershwin-eau-theme)         build_eau_theme ;;
+    gershwin-terminal)          build_terminal ;;
+    gershwin-textedit)          build_textedit ;;
+    gershwin-windowmanager)     build_windowmanager ;;
+    gershwin-components)        build_components ;;
+    plugins-themes-WinUXTheme)
+      if [ "$WINDOWS" -eq 1 ]; then build_winuxtheme
+      else echo "No build step for repository: $1 (Windows only)"; fi ;;
+    # Metadata/content repositories and not-yet-buildable pins genuinely
+    # have no build step - this is success, not the unknown-repository case
+    # below, which is why each is named explicitly rather than folded into
+    # the fallback (a real typo or newly-added repo missing its case here
+    # must still fail loudly, not silently look like "nothing to build").
+    gershwin-developer|docs|gershwin-desktop.wiki|libs-steptalk)
+      echo "No build step for repository: $1 (metadata/content or not-yet-buildable pin)"
+      ;;
+    *)
+      echo "No build step for repository: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+install_one_repo() {
+  case "$1" in
+    gershwin-system)            install_gershwin_system ;;
+    gershwin-assets)            install_gershwin_assets ;;
+    swift-corelibs-libdispatch) install_libdispatch ;;
+    tools-make)                 install_toolsmake ;;
+    libobjc2)                   install_libobjc2 ;;
+    libs-base)                  install_libsbase ;;
+    libs-gui)                   install_libsgui ;;
+    libs-back)                  install_libsback ;;
+    libs-av)                    install_libsav ;;
+    gershwin-systempreferences) install_systempreferences ;;
+    gershwin-workspace)         install_workspace ;;
+    gershwin-eau-theme)         install_eau_theme ;;
+    gershwin-terminal)          install_terminal ;;
+    gershwin-textedit)          install_textedit ;;
+    gershwin-windowmanager)     install_windowmanager ;;
+    gershwin-components)        install_components ;;
+    plugins-themes-WinUXTheme)
+      if [ "$WINDOWS" -eq 1 ]; then install_winuxtheme
+      else echo "No install step for repository: $1 (Windows only)"; fi ;;
+    gershwin-developer|docs|gershwin-desktop.wiki|libs-steptalk)
+      echo "No install step for repository: $1 (metadata/content or not-yet-buildable pin)"
+      ;;
+    *)
+      echo "No install step for repository: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
 # Dispatch on the requested target.  Default "all" reproduces the original
-# end-to-end System Domain install in the exact same order.
+# end-to-end System Domain install in the exact same order.  "build-repo"/
+# "install-repo" additionally let a caller drive one repository at a time.
 TARGET="${1:-all}"
 case "$TARGET" in
+  build-repo)
+    build_one_repo "$2"
+    ;;
+  install-repo)
+    install_one_repo "$2"
+    ;;
   corelibs)
     build_corelibs
     ;;
   workspace)
-    ensure_gnustep_env
     # gershwin-workspace's MDIndexing prefPane links the PreferencePanes
     # framework (installed by gershwin-systempreferences); build that first
-    # so <PreferencePanes/PreferencePanes.h> resolves.
-    build_systempreferences
-    build_workspace
+    # so <PreferencePanes/PreferencePanes.h> resolves. Not on Windows, where
+    # the metadata indexer (and with it MDIndexing) is not built.
+    if [ "$WINDOWS" -eq 0 ]; then
+      build_systempreferences; install_systempreferences
+    fi
+    build_workspace;         install_workspace
     ;;
   systempreferences)
-    ensure_gnustep_env
-    build_systempreferences
+    build_systempreferences; install_systempreferences
     ;;
   eau-theme)
-    ensure_gnustep_env
-    build_eau_theme
+    build_eau_theme; install_eau_theme
     ;;
   terminal)
-    ensure_gnustep_env
-    build_terminal
+    build_terminal; install_terminal
     ;;
   textedit)
-    ensure_gnustep_env
-    build_textedit
+    build_textedit; install_textedit
     ;;
   windowmanager)
-    ensure_gnustep_env
-    build_windowmanager
+    build_windowmanager; install_windowmanager
     ;;
   components)
-    ensure_gnustep_env
-    build_components
+    build_components; install_components
     ;;
   tooling)
     ensure_gnustep_env
@@ -415,18 +851,19 @@ case "$TARGET" in
     build_corelibs
     # workspace's MDIndexing prefPane depends on the PreferencePanes
     # framework, so systempreferences must be built first.
-    build_systempreferences
-    build_workspace
-    build_eau_theme
-    build_terminal
-    build_textedit
-    build_windowmanager
-    build_components
+    build_systempreferences; install_systempreferences
+    build_workspace;         install_workspace
+    build_eau_theme;         install_eau_theme
+    build_terminal;          install_terminal
+    build_textedit;          install_textedit
+    build_windowmanager;     install_windowmanager
+    build_components;        install_components
     build_driveui
     ;;
   *)
     echo "Unknown target: $TARGET"
     echo "Valid targets: corelibs workspace systempreferences eau-theme terminal textedit windowmanager components tooling test all"
+    echo "Or: build-repo <name> / install-repo <name> for one repository from Library/Repositories.plist"
     exit 1
     ;;
 esac

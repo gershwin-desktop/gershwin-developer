@@ -1,0 +1,41 @@
+diff --git a/Source/x11/XGServer.m b/Source/x11/XGServer.m
+index de52a90..a6373ec 100644
+--- a/Source/x11/XGServer.m
++++ b/Source/x11/XGServer.m
+@@ -133,6 +133,7 @@ _parse_display_name(NSString *name, int *dn, int *sn)
+ 
+ @interface XGServer (Private)
+ - (void) setupRunLoopInputSourcesForMode: (NSString*)mode; 
++- (void) initializeMouse;
+ @end
+ 
+ @interface XGScreenContext : NSObject
+@@ -547,6 +548,13 @@ static NSString	*startupID = nil;
+   [self setupRunLoopInputSourcesForMode: NSConnectionReplyMode]; 
+   [self setupRunLoopInputSourcesForMode: NSModalPanelRunLoopMode]; 
+   [self setupRunLoopInputSourcesForMode: NSEventTrackingRunLoopMode]; 
++
++  /* Registering with the distributed notification center waits for
++   * gdnc in a nested run loop, which reads pending X events.  Doing it
++   * here rather than on the first button press keeps that press from
++   * being queued after the X events that follow it.
++   */
++  [self initializeMouse];
+   return self;
+ }
+ 
+diff --git a/Source/x11/XGServerEvent.m b/Source/x11/XGServerEvent.m
+index fb8f976..0989af9 100644
+--- a/Source/x11/XGServerEvent.m
++++ b/Source/x11/XGServerEvent.m
+@@ -427,9 +427,7 @@ posixFileDescriptor: (NSPosixFileDescriptor*)fileDescriptor
+          */
+         {
+           BOOL incrementCount = YES;
+-          
+-          if (clickTime == 0) [self initializeMouse];
+-         
++
+           if (xEvent.xbutton.time
+             >= (unsigned long)(generic.lastClick + clickTime))
+             incrementCount = NO;
