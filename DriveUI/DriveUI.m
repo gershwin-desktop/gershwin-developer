@@ -62,6 +62,7 @@
 #import <AppKit/AppKit.h>
 #import <GNUstepGUI/GSDisplayServer.h>
 #import "DriveUITreeFormat.h"
+#import "DriveUISocket.h"
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/stat.h>
@@ -211,28 +212,14 @@ static void WriteAll(int fd, const char *bytes)
   pid_t pid = [[NSProcessInfo processInfo] processIdentifier];
   NSString *sockPath = [NSString stringWithFormat: @"/tmp/driveui.%d.sock", pid];
 
-  unlink([sockPath UTF8String]);
-
-  int lfd = socket(AF_UNIX, SOCK_STREAM, 0);
+  NSString *why = nil;
+  int lfd = DriveUIOpenListener(sockPath, &why);
   if (lfd < 0)
     {
+      NSLog(@"DriveUI: no server in this app, %@", why);
       [pool release];
       return;
     }
-
-  struct sockaddr_un addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sun_family = AF_UNIX;
-  strncpy(addr.sun_path, [sockPath UTF8String], sizeof(addr.sun_path) - 1);
-
-  if (bind(lfd, (struct sockaddr *)&addr, sizeof(addr)) < 0
-      || listen(lfd, 8) < 0)
-    {
-      close(lfd);
-      [pool release];
-      return;
-    }
-  chmod([sockPath UTF8String], 0666);
 
   for (;;)
     {

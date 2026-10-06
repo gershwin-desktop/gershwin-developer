@@ -44,6 +44,7 @@
 #import "../UITest.h"
 /* The JUnit result model and serializer (spec reporter architecture). */
 #import "../JUnitReporter.h"
+#import "UITestStrayApps.h"
 
 static NSString *runner = @"/System/Library/Tools/run_uitest";
 static NSString *sourcesRoot = @"/Developer/Library/Sources";
@@ -702,7 +703,7 @@ reportMappedWindows(NSString *label)
 }
 
 static BOOL
-runScript(NSString *abs, GSUITestResult *result)
+runScriptBody(NSString *abs, GSUITestResult *result)
 {
   if (!fileExists(abs))
     {
@@ -934,6 +935,37 @@ runScript(NSString *abs, GSUITestResult *result)
     }
   reportMappedWindows([abs lastPathComponent]);
   return status == 0;
+}
+
+/* Run one script; when it fails, close the applications it started.  A test
+ * that times out never reaches its own quit, and the application it left
+ * open (with its windows) covers the next test's drag source or answers the
+ * next test's lookups, so one failure would take later, unrelated tests down
+ * with it.  The report of the windows has been written by then, so the log
+ * still shows what was left. */
+static BOOL
+runScript(NSString *abs, GSUITestResult *result)
+{
+  NSSet *before = UITestDriveUIPids(@"/tmp");
+  BOOL ok = runScriptBody(abs, result);
+  if (!ok)
+    {
+      NSSet *keep = [NSSet setWithObjects: @"Menu", @"Workspace", @"Dock",
+        @"WindowManager", nil];
+      NSArray *closed = UITestTerminateStrayApps(before, @"/tmp", keep, 3.0,
+        ^(pid_t pid, NSString *name)
+          {
+            /* An app that is open but did not answer DriveUI is the
+             * interesting case, and its stack is gone after the kill. */
+            captureStack(pid, [name UTF8String]);
+          });
+      if ([closed count] > 0)
+        {
+          NSLog(@"%s failed: closed the application(s) it left open: %@",
+            [abs UTF8String], [closed componentsJoinedByString: @", "]);
+        }
+    }
+  return ok;
 }
 
 /* UITEST_SEARCH_DIRS (set by TestInfo or the cross-repo driver) is a
