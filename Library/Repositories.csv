@@ -18,10 +18,16 @@
 #   RestartRequired  - YES for repositories that cannot be hot-swapped under
 #                       the running session (core libraries and the window
 #                       server). Empty means NO.
+#   Platforms        - optional. Empty means every platform. "windows" limits
+#                       a repository to Windows builds, "unix" to everything
+#                       else; several are separated by a space. checkout.sh
+#                       does not clone a repository for another platform and
+#                       Software Update does not list it: it would only be
+#                       reported as a repository that could not be checked.
 #
 # Patches for a repository live in Library/Patches/<Name>/*.patch regardless
 # of what is recorded here.
-Name,URL,Pin,RestartRequired
+Name,URL,Pin,RestartRequired,Platforms
 gershwin-developer,https://github.com/gershwin-desktop/gershwin-developer.git,,
 swift-corelibs-libdispatch,https://github.com/apple/swift-corelibs-libdispatch.git,95f592a,
 libobjc2,https://github.com/gnustep/libobjc2.git,c9f4002,
@@ -31,7 +37,7 @@ libs-gui,https://github.com/gnustep/libs-gui.git,8f804fd,YES
 libs-back,https://github.com/gnustep/libs-back.git,bbcc3de,YES
 libs-av,https://github.com/gnustep/libs-av.git,26566e2,
 libs-steptalk,https://github.com/gnustep/libs-steptalk.git,2b57b46,
-plugins-themes-WinUXTheme,https://github.com/gnustep/plugins-themes-WinUXTheme.git,92ab1fb,
+plugins-themes-WinUXTheme,https://github.com/gnustep/plugins-themes-WinUXTheme.git,92ab1fb,,windows
 gershwin-system,https://github.com/gershwin-desktop/gershwin-system.git,,YES
 gershwin-systempreferences,https://github.com/gershwin-desktop/gershwin-systempreferences.git,,
 gershwin-workspace,https://github.com/gershwin-desktop/gershwin-workspace.git,,

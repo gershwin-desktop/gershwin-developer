@@ -56,9 +56,27 @@ REPOS_DIR="$SCRIPT_DIR/../Sources"
 # field here (name, URL, sha) ever contains a comma, so no quoting is needed.
 REPOS_CSV="$SCRIPT_DIR/../Repositories.csv"
 
-# Names of every repository, in the order Repositories.csv lists them.
+# The platform this checkout is for, in the words of the Platforms column of
+# Repositories.csv: "windows" inside MSYS2/MinGW, "unix" everywhere else.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) HOST_PLATFORM=windows ;;
+    *)                    HOST_PLATFORM=unix ;;
+esac
+
+# Names of every repository for this platform, in the order Repositories.csv
+# lists them. A repository with a Platforms column that does not name this
+# platform (the Windows theme, outside Windows) is not cloned, and Software
+# Update does not list it either.
 list_repo_names() {
-    awk -F, '/^#/ { next } $1 == "" || $1 == "Name" { next } { print $1 }' "$REPOS_CSV"
+    awk -F, -v host="$HOST_PLATFORM" '
+        /^#/ { next }
+        $1 == "" || $1 == "Name" { next }
+        $5 != "" {
+            n = split($5, p, " "); ok = 0
+            for (i = 1; i <= n; i++) if (p[i] == host) ok = 1
+            if (!ok) next
+        }
+        { print $1 }' "$REPOS_CSV"
 }
 
 # The clone URL for repo $1.
