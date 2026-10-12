@@ -35,7 +35,6 @@ squashfs-tools-ng
 fusefs-squashfuse
 autoconf
 automake
-mDNSResponder
 libtool
 libvncserver
 freerdp
