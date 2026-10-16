@@ -45,6 +45,7 @@
 /* The JUnit result model and serializer (spec reporter architecture). */
 #import "../JUnitReporter.h"
 #import "UITestStrayApps.h"
+#import "UITestDetachedLaunch.h"
 
 static NSString *runner = @"/System/Library/Tools/run_uitest";
 static NSString *sourcesRoot = @"/Developer/Library/Sources";
@@ -622,9 +623,11 @@ launchWorkspaceIfNeeded(void)
     }
   NSString *bin = appPath(@"Workspace");
   NSLog(@"starting Workspace before test: %@", bin);
-  NSString *cmd = [NSString stringWithFormat:
-    @"setsid %@ </dev/null >/tmp/uitest_workspace.log 2>&1 &", bin];
-  system([cmd UTF8String]);
+  if (UITestLaunchDetached(bin, @"/tmp/uitest_workspace.log") == 0)
+    {
+      NSLog(@"Workspace could not be started");
+      return NO;
+    }
   for (int i = 0; i < 25; i++)
     {
       if (processRunning(@"Workspace"))
