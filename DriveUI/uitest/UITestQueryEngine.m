@@ -235,8 +235,14 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
   [outHandle closeFile];
   [errHandle closeFile];
 
+  /* The error message is made in the pool as well, and the caller reads it
+   * after the pool is gone. */
   [result retain];
+  if (err && *err)
+    [*err retain];
   [pool drain];
+  if (err && *err)
+    [*err autorelease];
   return [result autorelease];
 }
 
@@ -396,6 +402,19 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
+/* Whole-title match (English or localized spelling), used where a substring
+ * hit would be ambiguous. */
+- (BOOL)title:(NSString *)title isExactly:(NSString *)segOrEnglish
+{
+  if (title == nil)
+    return NO;
+  if ([title caseInsensitiveCompare: segOrEnglish] == NSOrderedSame)
+    return YES;
+  NSString *localized = [self localizeString: segOrEnglish];
+  return ![localized isEqualToString: segOrEnglish]
+    && [title caseInsensitiveCompare: localized] == NSOrderedSame;
+}
+
 - (BOOL)activateXWindow:(NSString *)title error:(NSString **)err
 {
   if (title == nil || [title length] == 0)
@@ -545,29 +564,17 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
-/* Raise + focus the app's main window by clicking it (activate).  The app is
- * already the resolved PID target; raising its frontmost window is best-effort
- * (some apps, e.g. a desktop, have no clickable title bar, and window facades
- * may not carry a screen frame). */
+/* Bring the app's front window forward through the window manager and wait
+ * until the app has the keyboard (drive_ui activate).  No click: it would land
+ * on whatever widget comes first, and on a Dock icon it launches an app that
+ * then takes the keyboard and swallows the test's typing.  An app without a
+ * window that can take the keyboard is still the PID target, so the following
+ * commands drive it directly. */
 - (BOOL)activate:(NSString **)err
 {
-  NSArray *argv = [self argvForSubcommand: @"get_full_tree"];
-  NSString *tree = [self runCollect: argv timeout: kToolTimeoutApp error: err];
-  if (!tree) return NO;
-  NSString *target = nil;
-  for (NSArray *f in DriveUIParseTree(tree))
-    {
-      if ([f count] < 9) continue;
-      if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;   /* hidden */
-      NSString *sf = [f objectAtIndex: 5];
-      if ([sf length] == 0) continue;                              /* no frame to click */
-      target = [f objectAtIndex: 8];
-      break;
-    }
-  /* Nothing clickable to raise - the app is already our PID target, so this is
-   * fine; the subsequent commands drive it directly. */
-  if (target == nil) return YES;
-  return [self clickObjectID: target button: 1 count: 1 error: err];
+  return [self runCollect: [self argvForSubcommand: @"activate"]
+                  timeout: kToolTimeoutApp
+                    error: err] != nil;
 }
 
 - (BOOL)focusMainWindow:(NSString **)err
@@ -683,6 +690,16 @@ static void SetErr(NSString **err, NSString *m)
  * positions. */
 - (NSString *)modalWindowTitle:(NSString **)err
 {
+  return [self modalWindowTitle: err frame: NULL];
+}
+
+/* As above, and the modal window's frame when the app reports one (the
+ * "{x = ...}" last field of "<Class>|<title>|<frame>"); a zero rect when it
+ * does not.  A title never starts with "{x = ", so the last field is only
+ * taken as the frame when it looks like one. */
+- (NSString *)modalWindowTitle:(NSString **)err frame:(NSRect *)frame
+{
+  if (frame) *frame = NSZeroRect;
   if (pid_ == 0) { SetErr(err, @"no application target"); return nil; }
   NSString *reply = nil;
   for (int attempt = 0; attempt < 8; attempt++)
@@ -697,9 +714,43 @@ static void SetErr(NSString **err, NSString *m)
     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
   if ([reply isEqualToString: @"none"]) return nil;
   NSRange bar = [reply rangeOfString: @"|"];
-  if (bar.location != NSNotFound)
-    return [reply substringFromIndex: bar.location + 1];
-  return reply;
+  if (bar.location == NSNotFound) return reply;
+  NSString *rest = [reply substringFromIndex: bar.location + 1];
+  NSRange lastBar = [rest rangeOfString: @"|" options: NSBackwardsSearch];
+  if (lastBar.location != NSNotFound)
+    {
+      NSString *tail = [rest substringFromIndex: lastBar.location + 1];
+      if ([tail hasPrefix: @"{x = "])
+        {
+          if (frame) *frame = NSRectFromString(tail);
+          return [rest substringToIndex: lastBar.location];
+        }
+    }
+  return rest;
+}
+
+/* The modal window's frame, once it stops moving.  A sheet spends the first
+ * 0.2 s of its modal session sliding out from under the parent's titlebar
+ * (the theme animates it in 60 Hz steps), and a click computed from a frame
+ * taken mid-slide lands beside the button and the dialog stays up.  Two
+ * consecutive samples with the same frame mean the slide is over; a window
+ * that never settles within a second is reported as it is, so a script still
+ * sees the modal rather than hanging here. */
+- (BOOL)modalWindowSettled:(NSString **)err title:(NSString **)title
+{
+  NSRect last = NSZeroRect;
+  for (int sample = 0; sample < 16; sample++)
+    {
+      NSRect now;
+      NSString *mt = [self modalWindowTitle: err frame: &now];
+      if (mt == nil) return NO;
+      if (title) *title = mt;
+      if (NSIsEmptyRect(now)) return YES;   /* app without frame reporting */
+      if (sample > 0 && NSEqualRects(now, last)) return YES;
+      last = now;
+      usleep (60000);
+    }
+  return YES;
 }
 
 /* Switch an NSTabView to the tab item whose label matches, through DriveUI's
@@ -902,6 +953,25 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   return NULL;
 }
 
+/* The child of `node` that a path segment names.  A menu bar carries both
+ * "Process" and "Processes", so a substring hit alone would hand back whichever
+ * comes first and the rest of the path would be searched in the wrong menu;
+ * the item that carries the whole title therefore wins. */
+- (DDSMenuNode *)childOf:(DDSMenuNode *)node matchingSegment:(NSString *)seg
+{
+  DDSMenuNode *substringMatch = NULL;
+
+  for (int i = 0; i < node->nkids; i++)
+    {
+      DDSMenuNode *kid = node->kids[i];
+      if ([self title: kid->title isExactly: seg])
+        return kid;
+      if (substringMatch == NULL && [self title: kid->title matches: seg])
+        substringMatch = kid;
+    }
+  return substringMatch;
+}
+
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
@@ -919,13 +989,7 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   for (NSString *seg in segs)
     {
       if ([seg length] == 0) continue;
-      DDSMenuNode *match = NULL;
-      for (int i = 0; i < current->nkids; i++)
-        {
-          DDSMenuNode *k = current->kids[i];
-          if ([self title: k->title matches: seg])
-            { match = k; break; }
-        }
+      DDSMenuNode *match = [self childOf: current matchingSegment: seg];
       if (match == NULL) { found = NO; break; }
       [indices addObject: @(match->index)];
       current = match;
@@ -978,13 +1042,7 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   for (NSString *seg in segs)
     {
       if ([seg length] == 0) continue;
-      DDSMenuNode *match = NULL;
-      for (int i = 0; i < current->nkids; i++)
-        {
-          DDSMenuNode *k = current->kids[i];
-          if ([self title: k->title matches: seg])
-            { match = k; break; }
-        }
+      DDSMenuNode *match = [self childOf: current matchingSegment: seg];
       if (match == NULL) { found = NO; break; }
       current = match;
     }
@@ -1059,31 +1117,108 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   return [reply intValue];
 }
 
-- (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
-                  expected:(int)expected error:(NSString **)err
+- (BOOL)measureXWindow:(NSString *)title measure:(NSString *)measure
+                 value:(int *)value error:(NSString **)err
+{
+  if (measure == nil || [measure isEqualToString: @"count"])
+    {
+      int count = [self countXWindowsWithTitle: title error: err];
+      if (count < 0) return NO;
+      *value = count;
+      return YES;
+    }
+
+  NSUInteger field = [[NSArray arrayWithObjects: @"x", @"y", @"width", @"height", nil]
+    indexOfObject: measure];
+  if (field == NSNotFound)
+    {
+      SetErr(err, [NSString stringWithFormat: @"unknown xwindow measure '%@'", measure]);
+      return NO;
+    }
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"xwindow needs a title"); return NO; }
+  NSString *reply = [self runCollect: [NSArray arrayWithObjects:
+    @"xwindow_frame", title, nil] error: err];
+  if (!reply) return NO;
+  NSArray *parts = [[reply stringByTrimmingCharactersInSet:
+    [NSCharacterSet whitespaceAndNewlineCharacterSet]]
+    componentsSeparatedByString: @" "];
+  if ([parts count] != 4)
+    {
+      SetErr(err, [NSString stringWithFormat: @"no frame for xwindow '%@'", title]);
+      return NO;
+    }
+  *value = [[parts objectAtIndex: field] intValue];
+  return YES;
+}
+
+- (BOOL)assertXWindow:(NSString *)title measure:(NSString *)measure
+                   op:(NSString *)op expected:(int)expected error:(NSString **)err
 {
   if (title == nil || [title length] == 0)
-    { SetErr(err, @"assert xwindow count needs a title"); return NO; }
-  int count = [self countXWindowsWithTitle: title error: err];
-  if (count < 0) return NO;
+    { SetErr(err, @"assert xwindow needs a title"); return NO; }
+  int value = 0;
+  if (![self measureXWindow: title measure: measure value: &value error: err])
+    return NO;
 
   BOOL ok = NO;
-  if ([op isEqualToString: @"="]) ok = (count == expected);
-  else if ([op isEqualToString: @">"]) ok = (count > expected);
-  else if ([op isEqualToString: @">="]) ok = (count >= expected);
-  else if ([op isEqualToString: @"<"]) ok = (count < expected);
-  else if ([op isEqualToString: @"<="]) ok = (count <= expected);
-  else if ([op isEqualToString: @"!="]) ok = (count != expected);
-  else { SetErr(err, [NSString stringWithFormat: @"bad count operator '%@'", op]); return NO; }
+  if ([op isEqualToString: @"="]) ok = (value == expected);
+  else if ([op isEqualToString: @">"]) ok = (value > expected);
+  else if ([op isEqualToString: @">="]) ok = (value >= expected);
+  else if ([op isEqualToString: @"<"]) ok = (value < expected);
+  else if ([op isEqualToString: @"<="]) ok = (value <= expected);
+  else if ([op isEqualToString: @"!="]) ok = (value != expected);
+  else { SetErr(err, [NSString stringWithFormat: @"bad comparison operator '%@'", op]); return NO; }
 
   if (!ok)
     {
-      SetErr(err, [NSString stringWithFormat:
-        @"assert failed: %d windows match '%@' (expected %@ %d)",
-        count, title, op, expected]);
+      if (measure == nil || [measure isEqualToString: @"count"])
+        SetErr(err, [NSString stringWithFormat:
+          @"assert failed: %d windows match '%@' (expected %@ %d)",
+          value, title, op, expected]);
+      else
+        SetErr(err, [NSString stringWithFormat:
+          @"assert failed: xwindow '%@' %@ is %d (expected %@ %d)",
+          title, measure, value, op, expected]);
       return NO;
     }
   return YES;
+}
+
+- (BOOL)grabTitlebar:(NSString *)title error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"grab titlebar needs a window title"); return NO; }
+  return [self runCollect: [NSArray arrayWithObjects:
+    @"titlebar_press", title, nil] error: err] != nil;
+}
+
+- (BOOL)movePointerByX:(double)dx y:(double)dy error:(NSString **)err
+{
+  return [self runCollect: [NSArray arrayWithObjects: @"pointer_move", @"--by",
+    [NSString stringWithFormat: @"%g", dx],
+    [NSString stringWithFormat: @"%g", dy], nil] error: err] != nil;
+}
+
+- (BOOL)movePointerToEdge:(NSString *)edge error:(NSString **)err
+{
+  return [self runCollect: [NSArray arrayWithObjects: @"pointer_move", @"--edge",
+    edge ?: @"", nil] error: err] != nil;
+}
+
+- (BOOL)clickTitlebarButton:(NSString *)button ofWindow:(NSString *)title
+                      error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"click titlebar needs a window title"); return NO; }
+  return [self runCollect: [NSArray arrayWithObjects:
+    @"titlebar_click", title, button ?: @"", nil] error: err] != nil;
+}
+
+- (BOOL)releasePointer:(NSString **)err
+{
+  return [self runCollect: [NSArray arrayWithObject: @"pointer_release"]
+                    error: err] != nil;
 }
 
 /* Resolve Menu.app's pid via its X11 window first (fast, no socket probing),
@@ -1303,6 +1438,36 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
   [args addObject: [NSString stringWithFormat: @"%g", dx]];
   [args addObject: [NSString stringWithFormat: @"%g", dy]];
   return [self runCollect: args error: err] != nil;
+}
+
+- (BOOL)dragRole:(UITestRole)role title:(NSString *)title inWindow:(NSString *)windowTitle
+        ontoRole:(UITestRole)role2 title:(NSString *)title2
+            hold:(NSTimeInterval)hold error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+
+  NSString *srcID = [self objectIDForRole: role title: title
+                                 inWindow: windowTitle error: err];
+  if (!srcID) return NO;
+
+  /* The destination is resolved in the same window scope as the source: a
+   * drop names two widgets a user can see at once. */
+  NSString *dstID = [self objectIDForRole: role2 title: title2
+                                 inWindow: windowTitle error: err];
+  if (!dstID) return NO;
+
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"drag_onto"]];
+  [args addObject: srcID];
+  [args addObject: dstID];
+  if (hold > 0)
+    {
+      [args addObject: @"--hold"];
+      [args addObject: [NSString stringWithFormat: @"%d", (int)(hold * 1000)]];
+    }
+  /* The drag takes as long as it rests on the destination, on top of the
+   * time any query may take: stopped half way, it leaves the button down. */
+  return [self runCollect: args timeout: kToolTimeoutFast + hold error: err] != nil;
 }
 
 - (NSString *)widgetTreeText
@@ -1536,9 +1701,11 @@ static DDSMenuNode *DDSMenuTreeFromReply(NSString *tree)
     }
   if (role == DDSRoleModal)
     {
-      /* `modal` is answered by the app's modal state, not the widget tree. */
-      NSString *mt = [self modalWindowTitle: err];
-      if (mt == nil) return NO;
+      /* `modal` is answered by the app's modal state, not the widget tree,
+       * and only once the dialog has stopped sliding into place, so that the
+       * click a script issues next lands on the button it names. */
+      NSString *mt = nil;
+      if (![self modalWindowSettled: err title: &mt]) return NO;
       if (needle && ![self title: mt matches: needle]) return NO;
       return YES;
     }

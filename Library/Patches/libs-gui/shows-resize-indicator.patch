@@ -1,0 +1,61 @@
+diff --git a/Headers/AppKit/NSWindow.h b/Headers/AppKit/NSWindow.h
+index e5d98498e..788b7d844 100644
+--- a/Headers/AppKit/NSWindow.h
++++ b/Headers/AppKit/NSWindow.h
+@@ -334,6 +334,7 @@ PACKAGE_SCOPE
+     unsigned autorecalculates_keyview_loop: 1;
+     unsigned ignores_mouse_events: 1;
+     unsigned preserves_content_during_live_resize: 1;
++    unsigned shows_resize_indicator: 1;
+   } _f;
+ @protected 
+   NSToolbar     *_toolbar;
+diff --git a/Source/NSWindow.m b/Source/NSWindow.m
+index b091679c8..37edb3100 100644
+--- a/Source/NSWindow.m
++++ b/Source/NSWindow.m
+@@ -1128,6 +1128,7 @@ many times.
+ 
+   _f.cursor_rects_enabled = YES;
+   _f.cursor_rects_valid = NO;
++  _f.shows_resize_indicator = YES;
+ 
+   /* Create the window view */
+   cframe.origin = NSZeroPoint;
+@@ -2109,14 +2110,24 @@ titleWithRepresentedFilename(NSString *representedFilename)
+ 
+ - (BOOL) showsResizeIndicator
+ {
+-  return ([self styleMask] & NSResizableWindowMask) ? YES : NO;
++  if (([self styleMask] & NSResizableWindowMask) == 0)
++    {
++      return NO;
++    }
++  return _f.shows_resize_indicator;
+ }
+ 
+ - (void) setShowsResizeIndicator: (BOOL)show
+ {
+-  // TODO
+-  NSLog(@"Method %s is not implemented for class %s",
+-        "setShowsResizeIndicator:", "NSWindow");
++  if (_f.shows_resize_indicator == show)
++    {
++      return;
++    }
++  _f.shows_resize_indicator = show;
++  /* The theme draws the indicator, so the window is drawn again without
++     it, or with it back. */
++  [_wv setNeedsDisplay: YES];
++  [[self contentView] setNeedsDisplay: YES];
+ }
+ 
+ - (BOOL) preservesContentDuringLiveResize
+@@ -6147,6 +6166,7 @@ current key view.<br />
+ //  _f.is_main = NO;
+ //  _f.is_edited = NO;
+   _f.is_released_when_closed = YES;
++  _f.shows_resize_indicator = YES;
+ //  _f.is_miniaturized = NO;
+ //  _f.menu_exclude = NO;
+ //  _f.hides_on_deactivate = NO;

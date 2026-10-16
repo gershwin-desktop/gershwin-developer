@@ -32,14 +32,23 @@ _apply_one() {
         [ -f "$f" ] || continue
 
         echo "  $(basename "$f")..."
-        err=$(patch -p1 -N -t -i "$f" 2>&1 >/dev/null)
-        if [ $? -eq 0 ]; then
-            applied=$((applied + 1))
-        elif patch -p1 -R -f --dry-run -t -i "$f" >/dev/null 2>&1; then
+        # Ask "is it already applied?" BEFORE applying. patch -N alone is not
+        # enough: FreeBSD's patch only recognises a previously applied hunk
+        # when the hunk removes lines, so a hunk that purely adds lines
+        # between unchanged context (a new method, say) is applied again,
+        # further down, on every run. That is how a second "make install"
+        # on the same tree produced two workAreaForScreen: methods in
+        # libs-gui. A clean reverse dry run means every hunk is present.
+        if patch -p1 -R -f --dry-run -t -i "$f" >/dev/null 2>&1; then
             already=$((already + 1))
         else
-            echo "$err"
-            failed=$((failed + 1))
+            err=$(patch -p1 -N -t -i "$f" 2>&1 >/dev/null)
+            if [ $? -eq 0 ]; then
+                applied=$((applied + 1))
+            else
+                echo "$err"
+                failed=$((failed + 1))
+            fi
         fi
 
         find "$repo_dir" -name '*.rej' -delete 2>/dev/null

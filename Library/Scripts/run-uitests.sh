@@ -358,6 +358,12 @@ if [ "$UITEST_SESSION" = "isolated" ]; then
   session_run env WS_PRELOAD="$WS_PRELOAD" sh -c '
     . /System/Library/Makefiles/GNUstep.sh
     eval $(dbus-launch --sh-syntax)
+    # GTK and Qt programs show their menus in Menu (Menu/ToolkitModules)
+    export GTK_PATH=/System/Library/Libraries/appmenu-do${GTK_PATH:+:$GTK_PATH} GTK_MODULES=gtk-appmenu-do
+    export QT_PLUGIN_PATH=/System/Library/Libraries/appmenu-do${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
+    # gad first: it only starts the menu module and leaves the theme to the next name
+    case ":$QT_QPA_PLATFORMTHEME:" in *:gad:*) ;; *) export QT_QPA_PLATFORMTHEME=gad${QT_QPA_PLATFORMTHEME:+:$QT_QPA_PLATFORMTHEME} ;; esac
+    export GIO_EXTRA_MODULES=/System/Library/Libraries/appmenu-do/gio/modules${GIO_EXTRA_MODULES:+:$GIO_EXTRA_MODULES}
     /System/Library/CoreServices/Applications/Menu.app/Menu >/tmp/uitest_menu.log 2>&1 &
     /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >/tmp/uitest_wm.log 2>&1 &
     ${WS_PRELOAD:+env LD_PRELOAD=$WS_PRELOAD} /System/Applications/Workspace.app/Workspace >/tmp/uitest_ws.log 2>&1 &
@@ -483,6 +489,14 @@ fi
 if [ "$rc" -ne 0 ]; then
   print_session_logs
 fi
+
+# The tails above rarely reach back to the failing test; keep the whole logs
+# beside the JUnit report, which CI uploads as an artifact.
+for _log in /tmp/uitest_ws.log /tmp/uitest_workspace.log /tmp/uitest_menu.log /tmp/uitest_wm.log; do
+  [ -f "$_log" ] || continue
+  mkdir -p "$(dirname "$JUNIT_OUTPUT")"
+  cp "$_log" "$(dirname "$JUNIT_OUTPUT")/"
+done
 
 restore_appkit_bundles
 
