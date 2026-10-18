@@ -853,6 +853,9 @@ static NSString *CommandName(UITestCommandType t)
   if (tree == nil)
     {
       fprintf(stderr, "[uitest] no widget tree (the application is gone)\n");
+      NSString *ending = [engine_ launchedAppExitDescription];
+      if (ending != nil)
+        fprintf(stderr, "[uitest] %s\n", [ending UTF8String]);
       return;
     }
   fprintf(stderr, "[uitest] visible widgets when the script stopped:\n");

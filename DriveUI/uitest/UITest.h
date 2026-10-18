@@ -237,6 +237,7 @@ typedef enum
   NSString *driveTool_; /* path to the drive_ui binary */
   NSMutableDictionary *localizeCache_; /* english -> localized, per app */
   BOOL verbose_;     /* emit per-socket resolution diagnostics */
+  NSTask *launchedTask_; /* the app `launch application` started last */
 }
 - (id)initWithDriveTool:(NSString *)toolPath;
 - (void)setVerbose:(BOOL)flag;
@@ -244,6 +245,9 @@ typedef enum
 - (BOOL)activate:(NSString **)err;                      /* raise + focus main window */
 - (BOOL)activateXWindow:(NSString *)title error:(NSString **)err;
 - (BOOL)launchApplication:(NSString *)name error:(NSString **)err;
+/* How the application started by the last `launch application` ended, or
+ * nil while it runs (or when the script launched none). */
+- (NSString *)launchedAppExitDescription;
 - (BOOL)focusMainWindow:(NSString **)err;
 - (int)pid;
 - (NSString *)appName;
