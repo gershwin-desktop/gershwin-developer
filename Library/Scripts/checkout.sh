@@ -44,6 +44,15 @@ if [ -z "$BRANCH" ]; then
   done
 fi
 
+# SHALLOW=1 clones every repository with its newest commit only and without
+# the other branches. The live images set it: the history of ~19 repositories
+# is several hundred MB that nobody on a live system reads, and git packs do
+# not compress any further in the image. Software Update and this script keep
+# working on such a tree; they fetch a branch or a pinned commit they do not
+# have yet with --depth 1 instead of pulling in the whole history. Unset (the
+# default) clones the full history, as a development machine wants it.
+SHALLOW="${SHALLOW:-0}"
+
 ON_BRANCH=""     # repos actually placed on $BRANCH (for the end-of-run summary)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -89,6 +98,50 @@ pin_for() {
     awk -F, -v name="$1" '/^#/ { next } $1 == name { print $3; exit }' "$REPOS_CSV"
 }
 
+# Whether the repository in the current directory is a shallow clone. Asked
+# of each repository rather than taken from $SHALLOW, so that updating a tree
+# a live image left behind never deepens it by accident.
+is_shallow() {
+    [ "$(git rev-parse --is-shallow-repository)" = true ]
+}
+
+# Makes origin/$1 exist in the current repository. A shallow clone, like any
+# --single-branch clone, fetches only the branch it was cloned from, so
+# checking out another one (BRANCH=dev on a tree cloned from main, or back)
+# needs that branch added to the fetch refspec and fetched first.
+ensure_branch() {
+    git rev-parse -q --verify "refs/remotes/origin/$1" >/dev/null && return 0
+    echo "  fetching branch '$1', which this clone does not track yet"
+    git remote set-branches --add origin "$1"
+    if is_shallow; then
+        git fetch --depth 1 origin "$1"
+    else
+        git fetch origin "$1"
+    fi
+}
+
+# Makes commit $1 present in the current repository. A shallow clone holds
+# the branch tip only, and a pin is usually older than that; git can fetch a
+# single commit by its full id but not by an abbreviation, so an abbreviated
+# pin that is missing is an error in Repositories.csv rather than something
+# to work around here.
+ensure_commit() {
+    git cat-file -e "$1^{commit}" 2>/dev/null && return 0
+    case "$1" in
+        *[!0-9a-f]*) ;;
+        *) if [ "${#1}" -eq 40 ]; then
+               if is_shallow; then
+                   git fetch --depth 1 origin "$1"
+               else
+                   git fetch origin "$1"
+               fi
+               return 0
+           fi ;;
+    esac
+    echo "error: pinned commit '$1' is not in $(basename "$PWD") and is not a full 40-character sha that could be fetched" >&2
+    exit 1
+}
+
 mkdir -p "$REPOS_DIR"
 cd "$REPOS_DIR"
 
@@ -127,9 +180,16 @@ for NAME in $(list_repo_names); do
         echo "Updating $NAME..."
         (
             cd "$NAME"
-            git fetch --all --tags
+            # --tags would fetch every tag together with all the history
+            # behind it, which turns a shallow clone back into a full one.
+            if is_shallow; then
+                git fetch --all
+            else
+                git fetch --all --tags
+            fi
             if [ -n "$USE_BRANCH" ]; then
                 echo "  $NAME: checking out branch '$USE_BRANCH'"
+                ensure_branch "$USE_BRANCH"
                 git checkout "$USE_BRANCH"
             fi
             if [ -z "$PIN" ]; then
@@ -146,6 +206,7 @@ for NAME in $(list_repo_names); do
                     DEFAULT_BRANCH="${DEFAULT_BRANCH#origin/}"
                     if [ -n "$DEFAULT_BRANCH" ]; then
                         echo "  $NAME: detached — returning to '$DEFAULT_BRANCH'"
+                        ensure_branch "$DEFAULT_BRANCH"
                         git checkout "$DEFAULT_BRANCH"
                     fi
                 fi
@@ -157,7 +218,11 @@ for NAME in $(list_repo_names); do
         if [ -n "$USE_BRANCH" ]; then
             echo "  $NAME: cloning branch '$USE_BRANCH'"
         fi
-        git clone ${USE_BRANCH:+--branch "$USE_BRANCH"} "$REPO"
+        if [ "$SHALLOW" -eq 1 ]; then
+            git clone --depth 1 ${USE_BRANCH:+--branch "$USE_BRANCH"} "$REPO"
+        else
+            git clone ${USE_BRANCH:+--branch "$USE_BRANCH"} "$REPO"
+        fi
     fi
 done
 
@@ -182,6 +247,7 @@ if [ "$PINNED" -eq 1 ]; then
         echo "  $NAME -> $COMMIT"
         (
             cd "$NAME"
+            ensure_commit "$COMMIT"
             git checkout "$COMMIT"
         )
     done
