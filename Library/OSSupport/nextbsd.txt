@@ -3,6 +3,7 @@ jpeg-turbo
 tiff
 png
 lcms2
+librsvg2-rust
 libxml2
 libxslt
 gnutls

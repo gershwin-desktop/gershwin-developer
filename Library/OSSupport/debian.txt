@@ -4,6 +4,7 @@ libturbojpeg0-dev
 libtiff5-dev
 libpng-dev
 liblcms2-dev
+librsvg2-bin
 icnsutils
 libxml2-dev
 libxslt1-dev
