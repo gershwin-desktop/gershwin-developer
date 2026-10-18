@@ -33,6 +33,7 @@ swift-corelibs-libdispatch,https://github.com/apple/swift-corelibs-libdispatch.g
 libobjc2,https://github.com/gnustep/libobjc2.git,c9f4002,
 tools-make,https://github.com/gnustep/tools-make.git,4e31a03,
 libs-base,https://github.com/gnustep/libs-base.git,5bda522,
+libs-corebase,https://github.com/gnustep/libs-corebase.git,8117c09,YES
 libs-gui,https://github.com/gnustep/libs-gui.git,8f804fd,YES
 libs-back,https://github.com/gnustep/libs-back.git,bbcc3de,YES
 libs-av,https://github.com/gnustep/libs-av.git,26566e2,
