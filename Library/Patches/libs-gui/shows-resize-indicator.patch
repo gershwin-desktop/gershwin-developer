@@ -1,8 +1,14 @@
 diff --git a/Headers/AppKit/NSWindow.h b/Headers/AppKit/NSWindow.h
-index e5d98498e..788b7d844 100644
+index b9e57e4d0..9d89ca5d9 100644
 --- a/Headers/AppKit/NSWindow.h
 +++ b/Headers/AppKit/NSWindow.h
-@@ -334,6 +334,7 @@ PACKAGE_SCOPE
+@@ -330,11 +330,12 @@ PACKAGE_SCOPE
+     unsigned is_movable_by_window_background: 1;
+     unsigned allows_tooltips_when_inactive: 1;
+ 
+-    // 4 used 28 available
++    // 5 used 27 available
+     unsigned shows_toolbar_button: 1;
      unsigned autorecalculates_keyview_loop: 1;
      unsigned ignores_mouse_events: 1;
      unsigned preserves_content_during_live_resize: 1;
@@ -11,10 +17,10 @@ index e5d98498e..788b7d844 100644
  @protected 
    NSToolbar     *_toolbar;
 diff --git a/Source/NSWindow.m b/Source/NSWindow.m
-index b091679c8..37edb3100 100644
+index 42c6922e8..a5b80c0c3 100644
 --- a/Source/NSWindow.m
 +++ b/Source/NSWindow.m
-@@ -1128,6 +1128,7 @@ many times.
+@@ -1133,6 +1133,7 @@ many times.
  
    _f.cursor_rects_enabled = YES;
    _f.cursor_rects_valid = NO;
@@ -22,7 +28,7 @@ index b091679c8..37edb3100 100644
  
    /* Create the window view */
    cframe.origin = NSZeroPoint;
-@@ -2109,14 +2110,24 @@ titleWithRepresentedFilename(NSString *representedFilename)
+@@ -2117,14 +2118,23 @@ titleWithRepresentedFilename(NSString *representedFilename)
  
  - (BOOL) showsResizeIndicator
  {
@@ -47,11 +53,10 @@ index b091679c8..37edb3100 100644
 +  /* The theme draws the indicator, so the window is drawn again without
 +     it, or with it back. */
 +  [_wv setNeedsDisplay: YES];
-+  [[self contentView] setNeedsDisplay: YES];
  }
  
  - (BOOL) preservesContentDuringLiveResize
-@@ -6147,6 +6166,7 @@ current key view.<br />
+@@ -6161,6 +6171,7 @@ current key view.<br />
  //  _f.is_main = NO;
  //  _f.is_edited = NO;
    _f.is_released_when_closed = YES;
