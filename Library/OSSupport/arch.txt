@@ -5,7 +5,6 @@ libtiff
 libpng
 lcms2
 libicns
-imagemagick
 libxml2
 libxslt
 gnutls
