@@ -4,7 +4,6 @@ libjpeg-turbo
 libtiff
 libpng
 lcms2
-librsvg
 libicns
 libxml2
 libxslt

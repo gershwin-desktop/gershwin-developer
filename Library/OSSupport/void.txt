@@ -4,7 +4,6 @@ libjpeg-turbo-devel
 tiff-devel
 libpng-devel
 lcms2-devel
-librsvg-utils
 libicns-devel
 libxml2-devel
 libxslt-devel
