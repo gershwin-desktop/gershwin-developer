@@ -8,6 +8,7 @@ libxslt
 gnutls
 libffi
 icu
+pkgconf
 cairo
 libXft
 flite
