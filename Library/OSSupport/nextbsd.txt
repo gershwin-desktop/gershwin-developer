@@ -3,12 +3,12 @@ jpeg-turbo
 tiff
 png
 lcms2
-ImageMagick7
 libxml2
 libxslt
 gnutls
 libffi
 icu
+pkgconf
 cairo
 libXft
 flite
