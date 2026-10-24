@@ -1,0 +1,226 @@
+diff --git a/ChangeLog b/ChangeLog
+index 76f621b9e..dab210c80 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,15 @@
++2026-10-24  Simon Peter <probonopd@users.noreply.github.com>
++
++	* Source/NSTextFieldCell.m (-titleRectForBounds:): Center the text
++	vertically when the cell does not wrap and its control view is a
++	table view.  A row taller than one line of text, as a theme or an
++	application that shows icons sets it, showed the text at the top of
++	the row; the field editor uses the same rectangle, so it stays on
++	top of the drawn text.
++	* Source/NSTableView.m (-editColumn:row:withEvent:select:): Set the
++	table view as the edited cell's control view.
++	* Tests/gui/NSTextFieldCell/tableTitleRect.m: New test.
++
+ 2026-09-30  Simon Peter <probonopd@users.noreply.github.com>
+ 
+ 	* Source/GSToolTips.m (-_timedOut:): Multiply the measured text size
+diff --git a/Source/NSTableView.m b/Source/NSTableView.m
+index f1c47dfde..193416813 100644
+--- a/Source/NSTableView.m
++++ b/Source/NSTableView.m
+@@ -3520,6 +3520,7 @@ byExtendingSelection: (BOOL)flag
+   // Prepare the cell
+   // NB: need to be released when no longer used
+   _editedCell = [[self preparedCellAtColumn: columnIndex row: rowIndex] copy];
++  [_editedCell setControlView: self];
+ 
+   tb = [_tableColumns objectAtIndex: columnIndex];
+   [_editedCell setObjectValue: [self _objectValueForTableColumn: tb
+diff --git a/Source/NSTextFieldCell.m b/Source/NSTextFieldCell.m
+index 06588e9f7..6e79cb2f5 100644
+--- a/Source/NSTextFieldCell.m
++++ b/Source/NSTextFieldCell.m
+@@ -38,6 +38,7 @@
+ #import "AppKit/NSGraphics.h"
+ #import "AppKit/NSKeyValueBinding.h"
+ #import "AppKit/NSStringDrawing.h"
++#import "AppKit/NSTableView.h"
+ #import "AppKit/NSTextField.h"
+ #import "AppKit/NSTextFieldCell.h"
+ #import "AppKit/NSText.h"
+@@ -228,6 +229,34 @@
+   [self _drawBackgroundWithFrame: cellFrame inView: controlView];
+ }
+ 
++- (NSRect) titleRectForBounds: (NSRect)theRect
++{
++  NSRect titleRect = [super titleRectForBounds: theRect];
++  NSView *controlView = [self controlView];
++
++  if (![self wraps] && [controlView isKindOfClass: [NSTableView class]])
++    {
++      NSAttributedString *text = [self _drawAttributedString];
++      CGFloat textHeight = 0.0;
++
++      if (text != nil)
++	{
++	  textHeight = [text size].height;
++	}
++      if (textHeight <= 0.0)
++	{
++	  textHeight = [[self font] defaultLineHeightForFont];
++	}
++      if (textHeight < NSHeight(titleRect))
++	{
++	  titleRect.origin.y += (NSHeight(titleRect) - textHeight) / 2.0;
++	  titleRect.size.height = textHeight;
++	  titleRect = [controlView centerScanRect: titleRect];
++	}
++    }
++  return titleRect;
++}
++
+ - (void) drawInteriorWithFrame: (NSRect)cellFrame inView: (NSView*)controlView
+ {
+   if (_cell.in_editing)
+diff --git a/Tests/gui/NSTextFieldCell/tableTitleRect.m b/Tests/gui/NSTextFieldCell/tableTitleRect.m
+new file mode 100644
+index 000000000..58600c005
+--- /dev/null
++++ b/Tests/gui/NSTextFieldCell/tableTitleRect.m
+@@ -0,0 +1,141 @@
++#include "Testing.h"
++
++#include <Foundation/NSAutoreleasePool.h>
++
++#include <AppKit/NSApplication.h>
++#include <AppKit/NSAttributedString.h>
++#include <AppKit/NSClipView.h>
++#include <AppKit/NSStringDrawing.h>
++#include <AppKit/NSTableColumn.h>
++#include <AppKit/NSTableView.h>
++#include <AppKit/NSText.h>
++#include <AppKit/NSTextFieldCell.h>
++#include <AppKit/NSWindow.h>
++
++@interface Source : NSObject
++@end
++
++@implementation Source
++- (NSInteger) numberOfRowsInTableView: (NSTableView *)tv
++{
++  return 3;
++}
++- (id) tableView: (NSTableView *)tv
++  objectValueForTableColumn: (NSTableColumn *)col
++             row: (NSInteger)row
++{
++  return @"Row";
++}
++- (void) tableView: (NSTableView *)tv
++    setObjectValue: (id)value
++    forTableColumn: (NSTableColumn *)col
++               row: (NSInteger)row
++{
++}
++@end
++
++int
++main(int argc, char **argv)
++{
++  START_SET("NSTextFieldCell title rect in a table view")
++
++  NS_DURING
++  {
++    [NSApplication sharedApplication];
++  }
++  NS_HANDLER
++  {
++    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
++      SKIP("It looks like GNUstep backend is not yet installed")
++  }
++  NS_ENDHANDLER
++
++  {
++    NSRect bounds = NSMakeRect(0, 0, 200, 40);
++    NSTableView *table = AUTORELEASE([[NSTableView alloc]
++      initWithFrame: NSMakeRect(0, 0, 200, 200)]);
++    NSTextFieldCell *cell = AUTORELEASE([[NSTextFieldCell alloc]
++      initTextCell: @"Row"]);
++    CGFloat textHeight = [[cell attributedStringValue] size].height;
++    NSRect r;
++
++    [cell setLineBreakMode: NSLineBreakByTruncatingTail];
++
++    r = [cell titleRectForBounds: bounds];
++    PASS(NSEqualRects(r, bounds),
++      "outside a table view the title rect is the whole cell");
++
++    [cell setControlView: table];
++    r = [cell titleRectForBounds: bounds];
++    PASS(fabs(NSHeight(r) - textHeight) <= 1.0,
++      "in a table view the title rect is one line high");
++    PASS(fabs(NSMidY(r) - NSMidY(bounds)) <= 1.0,
++      "in a table view the title rect is vertically centered");
++    PASS(NSMinX(r) == NSMinX(bounds) && NSWidth(r) == NSWidth(bounds),
++      "centering does not change the horizontal extent");
++
++    r = [cell titleRectForBounds: NSMakeRect(0, 0, 200, textHeight - 2)];
++    PASS(NSHeight(r) == textHeight - 2,
++      "a cell lower than its text keeps the whole rect");
++
++    [cell setStringValue: @""];
++    r = [cell titleRectForBounds: bounds];
++    PASS(NSHeight(r) > 0 && fabs(NSMidY(r) - NSMidY(bounds)) <= 1.0,
++      "an empty cell keeps a centered line for the field editor");
++
++    [cell setStringValue: @"Row"];
++    [cell setWraps: YES];
++    r = [cell titleRectForBounds: bounds];
++    PASS(NSEqualRects(r, bounds),
++      "a wrapping cell keeps the whole rect");
++  }
++
++  NS_DURING
++  {
++    Source *source = AUTORELEASE([[Source alloc] init]);
++    NSWindow *window = AUTORELEASE([[NSWindow alloc]
++      initWithContentRect: NSMakeRect(100, 100, 300, 300)
++                styleMask: NSTitledWindowMask
++                  backing: NSBackingStoreBuffered
++                    defer: NO]);
++    NSTableView *table = AUTORELEASE([[NSTableView alloc]
++      initWithFrame: NSMakeRect(0, 0, 300, 300)]);
++    NSTableColumn *column = AUTORELEASE([[NSTableColumn alloc]
++      initWithIdentifier: @"name"]);
++    NSRect cellFrame;
++    NSRect editorFrame;
++    NSView *editorView;
++
++    [column setWidth: 200];
++    [table addTableColumn: column];
++    [table setRowHeight: 40];
++    [table setDataSource: source];
++    [[window contentView] addSubview: table];
++    [table reloadData];
++    [table selectRow: 1 byExtendingSelection: NO];
++    [table editColumn: 0 row: 1 withEvent: nil select: YES];
++
++    editorView = [table currentEditor];
++    if ([[editorView superview] isKindOfClass: [NSClipView class]])
++      {
++        editorView = [editorView superview];
++      }
++    editorFrame = [editorView frame];
++    cellFrame = [table frameOfCellAtColumn: 0 row: 1];
++    PASS([table currentEditor] != nil, "the cell is being edited");
++    PASS(NSHeight(editorFrame) < NSHeight(cellFrame)
++      && fabs(NSMidY(editorFrame) - NSMidY(cellFrame)) <= 1.0,
++      "the field editor is vertically centered in the cell");
++    [table abortEditing];
++  }
++  NS_HANDLER
++  {
++    PASS(0, "editing a table cell raised %s",
++      [[localException reason] UTF8String]);
++  }
++  NS_ENDHANDLER
++
++  END_SET("NSTextFieldCell title rect in a table view")
++
++  return 0;
++}

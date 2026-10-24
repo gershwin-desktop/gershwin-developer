@@ -1,0 +1,71 @@
+diff --git a/Source/NSTableView.m b/Source/NSTableView.m
+index 31791f934..6421bed57 100644
+--- a/Source/NSTableView.m
++++ b/Source/NSTableView.m
+@@ -3519,6 +3519,10 @@ byExtendingSelection: (BOOL)flag
+   // Prepare the cell
+   // NB: need to be released when no longer used
+   _editedCell = [[self preparedCellAtColumn: columnIndex row: rowIndex] copy];
++  /* The cell may never have been drawn by us (a delegate can hand out a
++     fresh cell per row), but its title rectangle depends on knowing that
++     it sits in a table. */
++  [_editedCell setControlView: self];
+ 
+   tb = [_tableColumns objectAtIndex: columnIndex];
+   [_editedCell setObjectValue: [self _objectValueForTableColumn: tb
+diff --git a/Source/NSTextFieldCell.m b/Source/NSTextFieldCell.m
+index 06588e9f7..f84f85bf5 100644
+--- a/Source/NSTextFieldCell.m
++++ b/Source/NSTextFieldCell.m
+@@ -38,6 +38,7 @@
+ #import "AppKit/NSGraphics.h"
+ #import "AppKit/NSKeyValueBinding.h"
+ #import "AppKit/NSStringDrawing.h"
++#import "AppKit/NSTableView.h"
+ #import "AppKit/NSTextField.h"
+ #import "AppKit/NSTextFieldCell.h"
+ #import "AppKit/NSText.h"
+@@ -228,6 +229,43 @@
+   [self _drawBackgroundWithFrame: cellFrame inView: controlView];
+ }
+ 
++/* A table or outline view row is often taller than one line of text (a
++   theme may raise the row height, or an application does so to fit icons).
++   Placing the text at the top of such a row looks wrong; centering it
++   vertically is what users expect from a list.  Doing it here rather than
++   in the drawing code keeps the field editor, which is placed with this
++   method as well, exactly on top of the drawn text.  Wrapping cells keep
++   the whole rectangle since they may need several lines. */
++- (NSRect) titleRectForBounds: (NSRect)theRect
++{
++  NSRect titleRect = [super titleRectForBounds: theRect];
++  NSView *controlView = [self controlView];
++
++  if (![self wraps] && [controlView isKindOfClass: [NSTableView class]])
++    {
++      NSAttributedString *text = [self _drawAttributedString];
++      CGFloat textHeight = 0.0;
++
++      if (text != nil)
++	{
++	  textHeight = [text size].height;
++	}
++      /* An empty cell still needs room for the field editor's line. */
++      if (textHeight <= 0.0)
++	{
++	  textHeight = [[self font] defaultLineHeightForFont];
++	}
++      if (textHeight < NSHeight(titleRect))
++	{
++	  titleRect.origin.y += (NSHeight(titleRect) - textHeight) / 2.0;
++	  titleRect.size.height = textHeight;
++	  /* Whole device pixels, or the glyphs are smeared at scale 1. */
++	  titleRect = [controlView centerScanRect: titleRect];
++	}
++    }
++  return titleRect;
++}
++
+ - (void) drawInteriorWithFrame: (NSRect)cellFrame inView: (NSView*)controlView
+ {
+   if (_cell.in_editing)
