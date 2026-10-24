@@ -2,7 +2,7 @@ name: Build Gershwin System (Windows)
 
 # Builds the Gershwin System Domain for Windows: the patched GNUstep stack
 # (libobjc2, tools-make, libs-base, libs-gui, libs-back with the win32 server)
-# and the Workspace, inside an MSYS2 MINGW64 shell with the mingw-w64 clang
+# and the Workspace, inside an MSYS2 UCRT64 shell with the mingw-w64 clang
 # toolchain. Same scripts as the Unix builds: bootstrap.sh installs the
 # packages from Library/OSSupport/windows.txt, checkout.sh clones and pins the
 # sources, install-system-domain.sh builds into /System (a directory inside
@@ -58,7 +58,7 @@ jobs:
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
           # Only what bootstrap.sh needs to run; it installs the rest.
           install: git make
