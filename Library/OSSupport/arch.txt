@@ -32,9 +32,11 @@ libxrandr
 wget
 cups
 libxcomposite
+libxtst
 autoconf
 automake
 libtool
 ffmpeg
 sqlite
 xdotool
+alsa-lib

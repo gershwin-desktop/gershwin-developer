@@ -31,6 +31,7 @@ wget
 curl
 cups
 libXcomposite
+libXtst
 squashfs-tools-ng
 fusefs-squashfuse
 autoconf
@@ -41,3 +42,6 @@ freerdp
 ffmpeg
 sqlite3
 xdotool
+alsa-lib
+alsa-seq-server
+alsa-utils

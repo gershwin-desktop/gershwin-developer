@@ -1,0 +1,117 @@
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+index 2ff903c..20330ab 100644
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -1794,13 +1794,18 @@ _get_next_prop_new_event(Display *display, XEvent *event, char *arg)
+  * Code to build up a NET WM icon from our application icon
+  */
+ 
++/* Largest side of the icon published in _NET_WM_ICON.  Task bars and
++   window switchers show it at 16 to 64 pixels. */
++#define MAX_NET_WM_ICON_SIDE 128
++
+ -(BOOL) _createNetIcon: (NSImage*)image
+ 		result: (long**)pixeldata
+ 		  size: (int*)size
+ {
+   NSBitmapImageRep *rep;
+-  int i, j, w, h, samples;
++  int i, j, w, h, srcW, srcH, samples;
+   unsigned char *data;
++  NSInteger bytesPerRow;
+   int index;
+   long *iconPropertyData;
+   int iconSize;
+@@ -1812,10 +1817,36 @@ _get_next_prop_new_event(Display *display, XEvent *event, char *arg)
+       return NO;
+     }
+ 
+-  h = [rep pixelsHigh];
+-  w = [rep pixelsWide];
++  srcH = [rep pixelsHigh];
++  srcW = [rep pixelsWide];
+   samples = [rep samplesPerPixel];
+   data = [rep bitmapData];
++  bytesPerRow = [rep bytesPerRow];
++
++  /* The property is copied onto every window of the application and kept
++     by the X server for each of them: an application icon stored at
++     512x512 costs 1 MB of server memory per window, panels included.
++     Window managers and task bars draw it far smaller, so it is reduced
++     to at most MAX_NET_WM_ICON_SIDE pixels, averaging the source pixels
++     that fall on each one. */
++  if (srcW > MAX_NET_WM_ICON_SIDE || srcH > MAX_NET_WM_ICON_SIDE)
++    {
++      if (srcW >= srcH)
++        {
++          w = MAX_NET_WM_ICON_SIDE;
++          h = MAX(1, srcH * MAX_NET_WM_ICON_SIDE / srcW);
++        }
++      else
++        {
++          h = MAX_NET_WM_ICON_SIDE;
++          w = MAX(1, srcW * MAX_NET_WM_ICON_SIDE / srcH);
++        }
++    }
++  else
++    {
++      w = srcW;
++      h = srcH;
++    }
+ 
+   iconSize = 2 + w * h;
+   iconPropertyData = (long *)malloc(sizeof(long) * iconSize);
+@@ -1832,32 +1863,34 @@ _get_next_prop_new_event(Display *display, XEvent *event, char *arg)
+ 
+   for (i = 0; i < h; i++)
+     {
+-      unsigned char *d = data;
++      int firstRow = i * srcH / h;
++      int lastRow = MAX(firstRow + 1, (i + 1) * srcH / h);
+ 
+       for (j = 0; j < w; j++)
+ 	{
+-	  unsigned char A, R, G, B;
+-
+-	  // red
+-	  R = d[0];
+-	  // green
+-	  G = d[1];
+-	  // blue
+-	  B = d[2];
+-	  // alpha
+-	  if (samples == 4)
+-	    {
+-	      A = d[3];
+-	    }
+-	  else
++	  int firstColumn = j * srcW / w;
++	  int lastColumn = MAX(firstColumn + 1, (j + 1) * srcW / w);
++	  unsigned long R = 0, G = 0, B = 0, A = 0, taken = 0;
++	  int y, x;
++
++	  for (y = firstRow; y < lastRow; y++)
+ 	    {
+-	      A = 255;
++	      unsigned char *d = data + y * bytesPerRow + firstColumn * samples;
++
++	      for (x = firstColumn; x < lastColumn; x++)
++		{
++		  R += d[0];
++		  G += d[1];
++		  B += d[2];
++		  A += (samples == 4) ? d[3] : 255;
++		  taken++;
++		  d += samples;
++		}
+ 	    }
+ 
+-          iconPropertyData[index++] = A << 24 | R << 16 | G << 8 | B;
+-	  d += samples;
++          iconPropertyData[index++] = (A / taken) << 24 | (R / taken) << 16
++	    | (G / taken) << 8 | (B / taken);
+ 	}
+-      data += [rep bytesPerRow];
+     }
+ 
+   *pixeldata = iconPropertyData;

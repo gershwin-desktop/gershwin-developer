@@ -1,0 +1,17 @@
+diff --git a/Source/NSToolbarItem.m b/Source/NSToolbarItem.m
+index 9e3d3a936..3a5a2fdc7 100644
+--- a/Source/NSToolbarItem.m
++++ b/Source/NSToolbarItem.m
+@@ -702,6 +702,12 @@ NSString *GSMovableToolbarItemPboardType = @"GSMovableToolbarItemPboardType";
+       case NSToolbarDisplayModeIconOnly:
+         _showLabel = NO;
+         layoutedHeight -= labelSize.height + InsetItemTextY;
++        /* Neither label nor image is shown, so neither the label width
++           nor the minimum width of an image item applies.  Otherwise
++           views of the same width end up in items of different widths,
++           depending on how long their hidden labels are. */
++        if ([view superview] != nil)
++          layoutedWidth = [view frame].size.width + 2 * InsetItemViewX;
+         break;
+       case NSToolbarDisplayModeLabelOnly:
+         _enabled = NO;

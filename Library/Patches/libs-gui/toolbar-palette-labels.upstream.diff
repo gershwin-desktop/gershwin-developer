@@ -1,0 +1,96 @@
+diff --git a/ChangeLog b/ChangeLog
+index 76f621b9e..62244fdc8 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,14 @@
++2026-10-24  Simon Peter <probonopd@users.noreply.github.com>
++
++	* Source/GSToolbarCustomizationPalette.m
++	(-[GSToolbarCustomizationView paletteItemsWithToolbarItems:]):
++	Replace an item's label with its palette label only when the
++	palette label is not empty.  -paletteLabel returns @"" rather than
++	nil when none was set, so every such item, the standard Customize,
++	Print, Colors and Fonts items among them, was shown in the palette
++	without a label.
++	* Tests/gui/NSToolbarItem/paletteItemLabel.m: New test.
++
+ 2026-09-30  Simon Peter <probonopd@users.noreply.github.com>
+ 
+ 	* Source/GSToolTips.m (-_timedOut:): Multiply the measured text size
+diff --git a/Source/GSToolbarCustomizationPalette.m b/Source/GSToolbarCustomizationPalette.m
+index 3674f17b3..69590c295 100644
+--- a/Source/GSToolbarCustomizationPalette.m
++++ b/Source/GSToolbarCustomizationPalette.m
+@@ -77,7 +77,7 @@
+     {
+       NSToolbarItem *newItem = [item copy];
+ 
+-      if ([newItem paletteLabel] != nil)
++      if ([[newItem paletteLabel] length] > 0)
+         [newItem setLabel: [newItem paletteLabel]];
+       [newItem setEnabled: YES];
+       [newItem _layout];
+diff --git a/Tests/gui/NSToolbarItem/paletteItemLabel.m b/Tests/gui/NSToolbarItem/paletteItemLabel.m
+new file mode 100644
+index 000000000..4229fc1b0
+--- /dev/null
++++ b/Tests/gui/NSToolbarItem/paletteItemLabel.m
+@@ -0,0 +1,58 @@
++#include "Testing.h"
++
++#include <Foundation/NSAutoreleasePool.h>
++#include <Foundation/NSArray.h>
++#include <Foundation/NSString.h>
++
++#include <AppKit/NSApplication.h>
++#include <AppKit/NSToolbarItem.h>
++#include <AppKit/NSView.h>
++
++@interface NSView (GSToolbarCustomizationView)
++- (NSArray *) paletteItemsWithToolbarItems: (NSArray *)items;
++@end
++
++int
++main(int argc, char **argv)
++{
++  START_SET("NSToolbarItem label in the customization palette")
++
++  NS_DURING
++    {
++      [NSApplication sharedApplication];
++    }
++  NS_HANDLER
++    {
++      if ([[localException name] isEqualToString: NSInternalInconsistencyException])
++        SKIP("It looks like GNUstep backend is not yet installed")
++    }
++  NS_ENDHANDLER
++
++  {
++    Class viewClass = NSClassFromString(@"GSToolbarCustomizationView");
++    NSView *view = AUTORELEASE([[viewClass alloc]
++      initWithFrame: NSMakeRect(0, 0, 400, 100)]);
++    NSToolbarItem *plain = AUTORELEASE([[NSToolbarItem alloc]
++      initWithItemIdentifier: @"plain"]);
++    NSToolbarItem *named = AUTORELEASE([[NSToolbarItem alloc]
++      initWithItemIdentifier: @"named"]);
++    NSArray *paletteItems;
++
++    [plain setLabel: @"Label"];
++    [named setLabel: @"Label"];
++    [named setPaletteLabel: @"Palette Label"];
++    paletteItems = [view paletteItemsWithToolbarItems:
++      [NSArray arrayWithObjects: plain, named, nil]];
++    printf("palette labels: \"%s\", \"%s\"\n",
++      [[[paletteItems objectAtIndex: 0] label] UTF8String],
++      [[[paletteItems objectAtIndex: 1] label] UTF8String]);
++    PASS_EQUAL([[paletteItems objectAtIndex: 0] label], @"Label",
++      "an item without a palette label keeps its label in the palette");
++    PASS_EQUAL([[paletteItems objectAtIndex: 1] label], @"Palette Label",
++      "an item with a palette label shows it in the palette");
++  }
++
++  END_SET("NSToolbarItem label in the customization palette")
++
++  return 0;
++}
