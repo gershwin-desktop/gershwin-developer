@@ -39,3 +39,4 @@ libtool
 ffmpeg
 sqlite
 xdotool
+alsa-lib

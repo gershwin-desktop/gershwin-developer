@@ -47,3 +47,4 @@ libarchive-devel
 squashfs-tools-ng
 squashfs-tools-ng-devel
 glu-devel 
+alsa-lib-devel

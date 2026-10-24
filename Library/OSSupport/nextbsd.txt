@@ -42,3 +42,6 @@ freerdp
 ffmpeg
 sqlite3
 xdotool
+alsa-lib
+alsa-seq-server
+alsa-utils
