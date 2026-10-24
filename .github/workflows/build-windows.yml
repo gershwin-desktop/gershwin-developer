@@ -8,9 +8,31 @@ name: Build Gershwin System (Windows)
 # sources, install-system-domain.sh builds into /System (a directory inside
 # the MSYS2 root). No X11, D-Bus, libdispatch or libs-av on Windows.
 
-# Manual only: a Windows build is expensive, so it is started on demand.
+# A Windows build is expensive, so it runs on demand and on pushes to dev
+# that change what the core system is built from: exactly the files
+# windows-system-id.sh hashes, plus this workflow. Each such push publishes
+# the zip for its new id, so the Windows CI of the other repositories finds
+# it instead of building the stack itself.
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - Library/Repositories.csv
+      - Library/OSSupport/windows.txt
+      - Library/Patches/**
+      - Library/Scripts/bootstrap.sh
+      - Library/Scripts/checkout.sh
+      - Library/Scripts/functions.sh
+      - Library/Scripts/patch.sh
+      - Library/Scripts/install-system-domain.sh
+      - Library/Scripts/windows-bundle-runtime.sh
+      - .github/workflows/build-windows.yml
+
+# Two runs for the same id would upload the same asset over each other.
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   # The Windows port has landed in dev in every Gershwin repository: checkout.sh
@@ -60,8 +82,9 @@ jobs:
         with:
           msystem: UCRT64
           update: false
-          # Only what bootstrap.sh needs to run; it installs the rest.
-          install: git make
+          # No packages here: bootstrap.sh installs them all from
+          # windows.txt (git and make included) and retries a failed
+          # download, which this action does not.
 
       - name: Bootstrap
         run: ./Library/Scripts/bootstrap.sh
@@ -86,8 +109,10 @@ jobs:
           ( cd /System && zip -qr "$GITHUB_WORKSPACE/artifacts/system/Gershwin-System-Windows-x86_64-${ID}.zip" . )
           ls -l artifacts/system
 
+      # Also on a manual run: the zip is named by the hash of its inputs, so
+      # publishing from any branch only ever serves checkouts that would
+      # build the identical system.
       - name: Publish the core system
-        if: github.event_name == 'push'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
