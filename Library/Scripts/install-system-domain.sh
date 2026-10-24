@@ -76,7 +76,7 @@ if [ "$(uname -s)" = "OpenBSD" ]; then
   export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 fi
 
-# Windows: the build runs in an MSYS2 MINGW64 shell with the mingw-w64 clang
+# Windows: the build runs in an MSYS2 UCRT64 shell with the mingw-w64 clang
 # toolchain, and /System is a directory inside the MSYS2 root (for the shell
 # and make it is /System; for native programs such as cmake and the compiled
 # binaries it is <msys2 root>\System).
@@ -229,7 +229,8 @@ build_toolsmake() {
     # and its POSIX /System paths are what tools-make wants on Windows too:
     # it requires unix-style paths in GNUstep.conf, and libs-base rewrites
     # them relative to its DLL for the native programs at its configure time.
-    # --prefix=/ because MSYS2's config.site defaults the prefix to /mingw64
+    # --prefix=/ because MSYS2's config.site defaults the prefix to the environment's
+    # own (/ucrt64)
     # and tools-make prepends the prefix to every layout path.
     ./configure \
       --prefix=/ \
