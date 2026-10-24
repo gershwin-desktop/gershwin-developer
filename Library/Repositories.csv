@@ -36,6 +36,7 @@ swift-corelibs-libdispatch,https://github.com/apple/swift-corelibs-libdispatch.g
 libobjc2,https://github.com/gnustep/libobjc2.git,c9f4002ade04d755f2a0e6c83daf2738dca03759,
 tools-make,https://github.com/gnustep/tools-make.git,4e31a0310df5f0aa96ccd816d3b626e67c36f535,
 libs-base,https://github.com/gnustep/libs-base.git,5bda52220a6d67382c9851cdfd91d459bfd2b489,
+libs-corebase,https://github.com/gnustep/libs-corebase.git,8117c092db139904ae08dc5d4b4b3c5553f2aa5a,YES
 libs-gui,https://github.com/gnustep/libs-gui.git,8f804fd520c60800961e0bee072066f4bbadca94,YES
 libs-back,https://github.com/gnustep/libs-back.git,bbcc3de7cab63b6e65944edf02f2bbef9d8a7bbd,YES
 libs-av,https://github.com/gnustep/libs-av.git,26566e25043ffc354364a9a5ff2c69252f81d404,

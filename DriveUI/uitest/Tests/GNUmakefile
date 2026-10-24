@@ -24,7 +24,7 @@ include $(GNUSTEP_MAKEFILES)/tool.make
 
 # t_junit - unit coverage for the JUnit result model and serializer.
 # t_treeformat - unit coverage for the DriveUI widget tree wire format.
-TEST_TOOL_NAME = t_junit t_treeformat t_strayapps t_driveuisocket t_detachedlaunch
+TEST_TOOL_NAME = t_junit t_treeformat t_strayapps t_driveuisocket t_detachedlaunch t_appoutput
 
 t_junit_OBJC_FILES = t_junit.m ../JUnitReporter.m
 t_junit_TOOL_LIBS = -lgnustep-base
@@ -40,6 +40,9 @@ t_driveuisocket_TOOL_LIBS = -lgnustep-base
 
 t_detachedlaunch_OBJC_FILES = t_detachedlaunch.m
 t_detachedlaunch_TOOL_LIBS = -lgnustep-base
+
+t_appoutput_OBJC_FILES = t_appoutput.m
+t_appoutput_TOOL_LIBS = -lgnustep-base
 
 include $(GNUSTEP_MAKEFILES)/test-tool.make
 

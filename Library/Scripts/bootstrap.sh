@@ -173,9 +173,26 @@ case "$OS_ID" in
       fi
     done < "$REQUIREMENTS_FILE"
 
+    # The MSYS2 mirrors regularly stall ("Operation too slow") or serve a
+    # truncated file ("invalid or corrupted package"), which fails the whole
+    # transaction although nothing is wrong with the package list. A failed
+    # transaction installs nothing, so retrying it is safe; the bad download
+    # stays in the cache and would be reused, hence the cache of everything
+    # not installed and any partial download are dropped before the retry.
     if [ -n "$missing" ]; then
       echo "Installing:$missing"
-      pacman -S --needed --noconfirm $missing
+      attempt=1
+      until pacman -S --needed --noconfirm $missing; do
+        if [ "$attempt" -ge 3 ]; then
+          echo "pacman failed $attempt times; giving up."
+          exit 1
+        fi
+        echo "pacman failed (attempt $attempt of 3); clearing failed downloads and retrying."
+        rm -f "$(pacman-conf CacheDir)"/*.part
+        pacman -Sc --noconfirm >/dev/null
+        sleep $((attempt * 15))
+        attempt=$((attempt + 1))
+      done
     else
       echo "All required packages are already installed."
     fi

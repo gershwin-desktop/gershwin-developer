@@ -18,6 +18,7 @@
 #import "UITest.h"
 #import "../X11Support.h"
 #import "../DriveUITreeFormat.h"
+#import "UITestAppOutput.h"
 #import <pthread.h>
 #import <signal.h>
 #import <unistd.h>
@@ -95,6 +96,7 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
   [appName_ release];
   [driveTool_ release];
   [localizeCache_ release];
+  [launchedTask_ release];
   [super dealloc];
 }
 - (int)pid { return pid_; }
@@ -483,6 +485,11 @@ static void SetErr(NSString **err, NSString *m)
   return nil;
 }
 
+- (NSString *)launchedAppExitDescription
+{
+  return UITestTaskExitDescription(launchedTask_);
+}
+
 /* Launch a GNUstep application by name and wait until its DriveUI socket
  * appears (resolveApplication: succeeds). */
 - (BOOL)launchApplication:(NSString *)name error:(NSString **)err
@@ -502,13 +509,18 @@ static void SetErr(NSString **err, NSString *m)
   NSTask *task = [[NSTask alloc] init];
   [task setLaunchPath: binary];
   [task setArguments: [NSArray array]];
-  /* The launched app's own stderr (GNUstep startup chatter, theme warnings,
-   * DBus noise) is not part of the test result - discard it so run_uitest's
-   * structured command log stays clean and greppable.  stdout too: apps print
-   * nothing useful for a UI test and it would pollute the harness output. */
-  NSFileHandle *devNull = [NSFileHandle fileHandleWithNullDevice];
-  [task setStandardOutput: devNull];
-  [task setStandardError: devNull];
+  /* The app's own output (startup chatter, theme warnings) stays out of
+   * run_uitest's command log.  An app that dies during startup leaves nothing
+   * else that says why, so UITEST_APP_LOG_DIR can collect it instead. */
+  NSFileHandle *output = UITestAppOutputHandle([[[NSProcessInfo processInfo]
+    environment] objectForKey: @"UITEST_APP_LOG_DIR"], name, err);
+  if (output == nil)
+    {
+      [task release];
+      return NO;
+    }
+  [task setStandardOutput: output];
+  [task setStandardError: output];
   @try
     {
       [task launch];
@@ -520,7 +532,10 @@ static void SetErr(NSString **err, NSString *m)
       return NO;
     }
   pid_t launchedPid = [task processIdentifier];
-  [task release];
+  /* Kept so a script that fails because the app vanished can say how it
+   * ended; an exit status and a signal point to different causes. */
+  [launchedTask_ release];
+  launchedTask_ = task;
   /* Wait for the app to be reachable.  GNUstep apps expose a DriveUI socket
    * (resolveApplication:); non-GNUstep apps (GTK etc.) never do, so a running
    * process is enough for them. */

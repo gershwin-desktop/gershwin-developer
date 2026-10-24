@@ -31,6 +31,19 @@ export CC="${CC:-clang}"
 export CXX="${CXX:-clang++}"
 export OBJC="${OBJC:-clang}"
 
+# Autoconf 2.72+ AC_PROG_CC silently upgrades CC to "$CC -std=gnu23" whenever
+# the compiler supports C23, and tools-make records that upgraded CC in
+# gnustep-make's config.make. GNUstep is not C23-clean: in C23 "int f()" means
+# "int f(void)", so gnustep-base's weak forward declaration of
+# gnustep_base_user_main conflicts with its own definition and NSProcessInfo.m
+# fails to compile. Only the BSDs hit it - Linux has HAVE_PROCFS, which
+# preprocesses that whole block away. Caching the C23 probe as "no" makes
+# configure fall through to the C11 probe, which clang passes with no extra
+# flag, so CC stays plain "clang" everywhere - including in config.make, which
+# keeps apps-gworkspace's "$CC must equal gnustep-config --variable=CC" check
+# satisfied.
+export ac_cv_prog_cc_c23=no
+
 # Detect NextBSD - libdispatch is provided by the base system
 if [ -d "/usr/lib/system" ]; then
   NEXTBSD=1
@@ -63,7 +76,7 @@ if [ "$(uname -s)" = "OpenBSD" ]; then
   export LIBRARY_PATH="/usr/X11R6/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 fi
 
-# Windows: the build runs in an MSYS2 MINGW64 shell with the mingw-w64 clang
+# Windows: the build runs in an MSYS2 UCRT64 shell with the mingw-w64 clang
 # toolchain, and /System is a directory inside the MSYS2 root (for the shell
 # and make it is /System; for native programs such as cmake and the compiled
 # binaries it is <msys2 root>\System).
@@ -216,7 +229,8 @@ build_toolsmake() {
     # and its POSIX /System paths are what tools-make wants on Windows too:
     # it requires unix-style paths in GNUstep.conf, and libs-base rewrites
     # them relative to its DLL for the native programs at its configure time.
-    # --prefix=/ because MSYS2's config.site defaults the prefix to /mingw64
+    # --prefix=/ because MSYS2's config.site defaults the prefix to the environment's
+    # own (/ucrt64)
     # and tools-make prepends the prefix to every layout path.
     ./configure \
       --prefix=/ \
@@ -439,6 +453,19 @@ EOF_CONF
 </dict>
 </plist>
 EOF_PLIST
+}
+
+build_libscorebase() {
+  ensure_gnustep_env
+
+  cd "$REPOS_DIR/libs-corebase"
+  ./configure \
+    $BUILD_FLAG \
+    CPPFLAGS="-I/System/Library/Headers" \
+    LDFLAGS="-L/System/Library/Libraries"
+  $MAKE_CMD -j"$CPUS" || exit 1
+  $MAKE_CMD install
+  $MAKE_CMD clean
 }
 
 build_libsgui() {
@@ -734,6 +761,7 @@ build_one_repo() {
     tools-make)                 build_toolsmake ;;
     libobjc2)                   build_libobjc2 ;;
     libs-base)                  build_libsbase ;;
+    libs-corebase)              build_libscorebase ;;
     libs-gui)                   build_libsgui ;;
     libs-back)                  build_libsback ;;
     libs-av)                    build_libsav ;;
@@ -770,6 +798,7 @@ install_one_repo() {
     tools-make)                 install_toolsmake ;;
     libobjc2)                   install_libobjc2 ;;
     libs-base)                  install_libsbase ;;
+    libs-corebase)              install_libscorebase ;;
     libs-gui)                   install_libsgui ;;
     libs-back)                  install_libsback ;;
     libs-av)                    install_libsav ;;

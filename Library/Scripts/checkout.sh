@@ -44,6 +44,27 @@ if [ -z "$BRANCH" ]; then
   done
 fi
 
+# A local run from a gershwin-developer checkout on dev builds dev too: the
+# build system's own branch is the channel the user chose, and building the
+# default branches from a dev checkout installed an old Eau main next to a dev
+# WindowManager (title bars with both button sets). A detached checkout counts
+# as dev when its commit is on origin/dev but not yet on origin/main, which is
+# what a worktree made from a dev commit looks like. An explicit BRANCH= wins.
+if [ -z "$BRANCH" ]; then
+  _self_dir="$(cd "$(dirname "$0")/../.." && pwd)"
+  _self_branch=$(git -C "$_self_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  if [ "$_self_branch" = "dev" ]; then
+    BRANCH=dev
+  elif [ "$_self_branch" = "HEAD" ] \
+       && git -C "$_self_dir" merge-base --is-ancestor HEAD origin/dev 2>/dev/null \
+       && ! git -C "$_self_dir" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+    BRANCH=dev
+  fi
+  if [ "$BRANCH" = "dev" ]; then
+    echo "gershwin-developer is on dev; preferring the dev branch for Gershwin repos."
+  fi
+fi
+
 # SHALLOW=1 clones every repository with its newest commit only and without
 # the other branches. The live images set it: the history of ~19 repositories
 # is several hundred MB that nobody on a live system reads, and git packs do

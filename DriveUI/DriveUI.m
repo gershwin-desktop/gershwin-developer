@@ -126,6 +126,7 @@
                       index:(NSInteger *)outIndex error:(NSString **)err;
 - (void)addWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items;
 - (void)addView:(NSView *)view depth:(int)depth into:(NSMutableArray *)items;
+- (void)addToolbarOfWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items;
 - (NSString *)selectTabItemOnMainThread:(NSTabViewItem *)item;
 - (NSString *)objectIDForObject:(id)obj;
 - (id)objectForID:(NSString *)objID;
@@ -1218,6 +1219,7 @@ static NSString *ShortcutForItem(NSMenuItem *item)
                           nil]];
 
       [self addView: [win contentView] depth: depth + 1 into: items];
+      [self addToolbarOfWindow: win depth: depth + 1 into: items];
     }
   @catch (NSException *e) { }
 }
@@ -1362,12 +1364,99 @@ static NSString *ShortcutForItem(NSMenuItem *item)
             }
         }
 
+      if ([view isKindOfClass: [NSSegmentedControl class]])
+        {
+          /* Segments are drawn by the control's cell, not subviews, and each
+           * has its own enabled state (Back without history): one pseudo-row
+           * per segment, named by its label or else its tool tip, with its
+           * own frame so a click lands on that segment.  The text column
+           * carries "*" after the name while the segment is selected. */
+          NSSegmentedControl *sc = (NSSegmentedControl *) view;
+          NSSegmentedCell *cell = (NSSegmentedCell *) [sc cell];
+          NSInteger n = [sc segmentCount];
+          NSRect bounds = [sc bounds];
+          CGFloat x = NSMinX(bounds);
+          NSWindow *w2 = [view window];
+          for (NSInteger i = 0; i < n; i++)
+            {
+              CGFloat width = [sc widthForSegment: i];
+              if (width <= 0.0)
+                width = (NSMaxX(bounds) - x) / (n - i);
+              NSRect r = NSMakeRect(x, NSMinY(bounds), width, NSHeight(bounds));
+              x += width;
+              NSString *name = [sc labelForSegment: i];
+              if ([name length] == 0)
+                name = [cell toolTipForSegment: i];
+              if (name == nil)
+                name = @"";
+              if ([cell isSelectedForSegment: i])
+                name = [name stringByAppendingString: @" *"];
+              NSString *sf = w2 ? NSStringFromRect([w2 convertRectToScreen:
+                                    [view convertRect: r toView: nil]]) : @"";
+              BOOL segEnabled = [sc isEnabled] && [sc isEnabledForSegment: i];
+              [items addObject: [NSArray arrayWithObjects:
+                [NSNumber numberWithInt: depth + 1],
+                @"NSSegment",
+                name,
+                [NSString stringWithFormat: @"%ld", (long)i],
+                NSStringFromRect(r),
+                sf,
+                [NSNumber numberWithInt: viewHidden ? 1 : 0],
+                segEnabled ? @"1" : @"0",
+                [NSString stringWithFormat: @"%@.%ld",
+                  [self objectIDForObject: sc], (long)i],
+                ownTitle,
+                @"low",
+                nil]];
+            }
+        }
+
       for (NSView *sub in [view subviews])
         {
           [self addView: sub depth: depth + 1 into: items];
         }
     }
   @catch (NSException *e) { }
+}
+
+/* Toolbar items live in the window's decoration view, outside the content
+ * view the tree is built from.  Each item gets a row named by its label
+ * (the item's own tag, framed like its view), with its view's tree below
+ * it; items without a view of their own (spaces) are left out. */
+- (void)addToolbarOfWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items
+{
+  NSToolbar *toolbar = [win toolbar];
+
+  if (toolbar == nil || [toolbar isVisible] == NO)
+    return;
+
+  for (NSToolbarItem *item in [toolbar items])
+    {
+      NSView *view = [item view];
+      NSString *sf;
+      BOOL enabled;
+
+      if (view == nil || [view window] == nil)
+        continue;
+      sf = NSStringFromRect([win convertRectToScreen:
+                              [view convertRect: [view bounds] toView: nil]]);
+      enabled = [view respondsToSelector: @selector(isEnabled)]
+        ? [(id)view isEnabled] : [item isEnabled];
+      [items addObject: [NSArray arrayWithObjects:
+        [NSNumber numberWithInt: depth],
+        NSStringFromClass([item class]),
+        [item label] ?: @"",
+        [NSString stringWithFormat: @"%ld", (long)[item tag]],
+        NSStringFromRect([view frame]),
+        [win isVisible] ? sf : @"",
+        [NSNumber numberWithInt: [win isVisible] ? 0 : 1],
+        enabled ? @"1" : @"0",
+        [self objectIDForObject: item],
+        [win title] ?: @"",
+        [item tag] != 0 ? @"high" : @"low",
+        nil]];
+      [self addView: view depth: depth + 1 into: items];
+    }
 }
 
 /* Emit one tree entry per table row (first-column text + on-screen rect) so
@@ -1470,6 +1559,13 @@ static BOOL DUIViewTreeContains(NSView *view, void *ptr)
       if ((void *)win == ptr) return win;
       if (DUIViewTreeContains([win contentView], ptr))
         return (__bridge id)ptr;
+      for (NSToolbarItem *item in [[win toolbar] items])
+        {
+          if ((void *)item == ptr)
+            return item;
+          if ([item view] != nil && DUIViewTreeContains([item view], ptr))
+            return (__bridge id)ptr;
+        }
     }
   return nil;
 }

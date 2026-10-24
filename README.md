@@ -12,7 +12,7 @@ This is intended for Gershwin developers only.  For more stable packaging with a
 * Debian
 * Devuan (Debian without systemd)
 * Void Linux (runit)
-* Windows (MSYS2 MINGW64, see below)
+* Windows (MSYS2 UCRT64, see below)
 
 ## Requirements for building
 
@@ -100,7 +100,7 @@ make workspace
 
 ## Building on Windows
 
-The Windows build is the same scripts inside an MSYS2 MINGW64 shell with the
+The Windows build is the same scripts inside an MSYS2 UCRT64 shell with the
 mingw-w64 clang toolchain (the gnustep-2.x ABI needs clang and lld there as
 everywhere else). `/System` is a directory inside the MSYS2 root, so no root
 is needed:
