@@ -5,7 +5,6 @@ libtiff5-dev
 libpng-dev
 liblcms2-dev
 icnsutils
-imagemagick
 libxml2-dev
 libxslt1-dev
 libgnutls28-dev
