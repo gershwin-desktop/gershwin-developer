@@ -29,7 +29,6 @@ xrandr
 libXrandr
 wget
 curl
-cups
 libXcomposite
 libXtst
 squashfs-tools-ng
