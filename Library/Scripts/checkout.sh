@@ -169,6 +169,14 @@ cd "$REPOS_DIR"
 for NAME in $(list_repo_names); do
     REPO=$(url_for "$NAME")
 
+    # Repositories.csv names gershwin-developer so that Software Update lists
+    # it, but this checkout is gershwin-developer (self-update.sh refreshes
+    # it). A second clone in Library/Sources was updated by Software Update
+    # while the scripts and package lists kept being read from here.
+    if [ "$NAME" = "gershwin-developer" ]; then
+        continue
+    fi
+
     case " $SKIP_REPOS " in
         *" $NAME "*)
             echo "Skipping $NAME (in SKIP_REPOS)..."
