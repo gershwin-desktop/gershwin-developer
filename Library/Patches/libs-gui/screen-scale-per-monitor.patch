@@ -1,0 +1,1437 @@
+diff --git a/Headers/Additions/GNUstepGUI/GSDisplayServer.h b/Headers/Additions/GNUstepGUI/GSDisplayServer.h
+index dd53c486e..c5245b877 100644
+--- a/Headers/Additions/GNUstepGUI/GSDisplayServer.h
++++ b/Headers/Additions/GNUstepGUI/GSDisplayServer.h
+@@ -157,6 +157,8 @@ APPKIT_EXPORT_CLASS
+ - (void) flushwindowrect: (NSRect)rect : (int)win;
+ - (void) styleoffsets: (float*)l : (float*)r : (float*)t : (float*)b 
+                      : (unsigned int)style;
++- (void) styleoffsets: (float*)l : (float*)r : (float*)t : (float*)b
++                     : (unsigned int)style window: (int)win;
+ - (void) docedited: (int) edited : (int)win;
+ - (void) setinputstate: (int)state : (int)win;
+ - (void) setinputfocus: (int)win;
+diff --git a/Headers/Additions/GNUstepGUI/GSWindowDecorationView.h b/Headers/Additions/GNUstepGUI/GSWindowDecorationView.h
+index e69b730e9..6acf841c7 100644
+--- a/Headers/Additions/GNUstepGUI/GSWindowDecorationView.h
++++ b/Headers/Additions/GNUstepGUI/GSWindowDecorationView.h
+@@ -72,6 +72,19 @@ APPKIT_EXPORT_CLASS
+ 
+ - (id) initWithFrame: (NSRect)frame window: (NSWindow *)w;
+ 
+++ (NSRect) contentRectForFrameRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor;
+++ (NSRect) frameRectForContentRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor;
++- (NSRect) contentRectForFrameRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor;
++- (NSRect) frameRectForContentRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor;
++
+ - (NSRect) contentRectForFrameRect: (NSRect)aRect
+ 			 styleMask: (NSUInteger)aStyle;
+ - (NSRect) frameRectForContentRect: (NSRect)aRect
+diff --git a/Headers/AppKit/NSWindow.h b/Headers/AppKit/NSWindow.h
+index 9d89ca5d9..8657255ed 100644
+--- a/Headers/AppKit/NSWindow.h
++++ b/Headers/AppKit/NSWindow.h
+@@ -339,7 +339,7 @@ PACKAGE_SCOPE
+   } _f;
+ @protected 
+   NSToolbar     *_toolbar;
+-  void          *_reserved_1;
++  CGFloat       _scaleFactor;
+ }
+ 
+ /*
+@@ -1002,6 +1002,10 @@ APPKIT_EXPORT NSString *NSWindowDidChangeScreenNotification;
+ #if OS_API_VERSION(MAC_OS_X_VERSION_10_4, GS_API_LATEST)
+ APPKIT_EXPORT NSString *NSWindowDidChangeScreenProfileNotification;
+ #endif
++#if OS_API_VERSION(MAC_OS_X_VERSION_10_7, GS_API_LATEST)
++APPKIT_EXPORT NSString *NSWindowDidChangeBackingPropertiesNotification;
++APPKIT_EXPORT NSString *NSBackingPropertyOldScaleFactorKey;
++#endif
+ APPKIT_EXPORT NSString *NSWindowDidDeminiaturizeNotification;
+ #if OS_API_VERSION(GS_API_MACOSX, GS_API_LATEST)
+ APPKIT_EXPORT NSString *NSWindowDidEndSheetNotification;
+diff --git a/Source/GSDisplayServer.m b/Source/GSDisplayServer.m
+index e8eba3b0c..e247e206b 100644
+--- a/Source/GSDisplayServer.m
++++ b/Source/GSDisplayServer.m
+@@ -804,6 +804,12 @@ GSCurrentServer(void)
+   [self subclassResponsibility: _cmd];
+ }
+ 
++- (void) styleoffsets: (float*) l : (float*) r : (float*) t : (float*) b
++		     : (unsigned int) style window: (int) win
++{
++  [self styleoffsets: l : r : t : b : style];
++}
++
+ /** Sets the document edited flag for the window */
+ - (void) docedited: (int) edited : (int) win
+ {
+diff --git a/Source/GSStandardWindowDecorationView.m b/Source/GSStandardWindowDecorationView.m
+index b65494a4f..bb2637e2b 100644
+--- a/Source/GSStandardWindowDecorationView.m
++++ b/Source/GSStandardWindowDecorationView.m
+@@ -50,6 +50,15 @@
+ 
+ + (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
+     forStyleMask: (NSUInteger)style
++{
++  [self offsets: l : r : t : b
++   forStyleMask: style
++    scaleFactor: [[NSScreen mainScreen] userSpaceScaleFactor]];
++}
++
+++ (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
++    forStyleMask: (NSUInteger)style
++     scaleFactor: (CGFloat)factor
+ {
+   GSTheme *theme = [GSTheme theme];
+ 
+@@ -67,7 +76,7 @@
+   if (style
+     & (NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask))
+     {
+-      *t = [[NSScreen mainScreen] userSpaceScaleFactor] * [theme titlebarHeight];
++      *t = factor * [theme titlebarHeight];
+     }
+   if (style & NSResizableWindowMask)
+     {
+diff --git a/Source/GSWindowDecorationView.m b/Source/GSWindowDecorationView.m
+index 8e66f3cf6..3b06ecb53 100644
+--- a/Source/GSWindowDecorationView.m
++++ b/Source/GSWindowDecorationView.m
+@@ -40,6 +40,7 @@
+ 
+ @interface NSWindow (GSWindowDecorationView)
+ - (void)_clearContentView;
++- (CGFloat)_screenScaleFactor;
+ @end
+ 
+ @implementation NSWindow (GSWindowDecorationView)
+@@ -50,6 +51,25 @@
+ {
+   _contentView = nil;
+ }
++
++/* The factor of the window's screen even for an NSUnscaledWindowMask
++   window, whose -userSpaceScaleFactor is 1 although its title bar offsets
++   always used the screen's factor. */
++- (CGFloat)_screenScaleFactor
++{
++  /* Asked of the window, not read from _scaleFactor: a subclass may
++     override -userSpaceScaleFactor, and the bounds -layout sets come from
++     that method. */
++  if (!(_styleMask & NSUnscaledWindowMask))
++    {
++      return [self userSpaceScaleFactor];
++    }
++  if (_screen != nil)
++    {
++      return [_screen userSpaceScaleFactor];
++    }
++  return [[NSScreen mainScreen] userSpaceScaleFactor];
++}
+ @end
+ 
+ @implementation GSWindowDecorationView
+@@ -62,6 +82,38 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+ 		    aRect.size.height * factor);
+ }
+ 
++static NSRect
++ContentRectWithOffsets(NSRect aRect, NSUInteger aStyle, CGFloat factor,
++		       float l, float r, float t, float b)
++{
++  aRect.size.width -= l + r;
++  aRect.size.height -= t + b;
++  aRect.origin.x += l;
++  aRect.origin.y += b;
++
++  if (0 == (aStyle & NSUnscaledWindowMask))
++    {
++      aRect = RectWithSizeScaledByFactor(aRect, 1/factor);
++    }
++  return aRect;
++}
++
++static NSRect
++FrameRectWithOffsets(NSRect aRect, NSUInteger aStyle, CGFloat factor,
++		     float l, float r, float t, float b)
++{
++  if (0 == (aStyle & NSUnscaledWindowMask))
++    {
++      aRect = RectWithSizeScaledByFactor(aRect, factor);
++    }
++
++  aRect.size.width += l + r;
++  aRect.size.height += t + b;
++  aRect.origin.x -= l;
++  aRect.origin.y -= b;
++  return aRect;
++}
++
+ + (id<GSWindowDecorator>) windowDecorator
+ {
+     return [[GSTheme theme] windowDecorator];
+@@ -82,49 +134,47 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+   [self subclassResponsibility: _cmd];
+ }
+ 
+++ (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
++    forStyleMask: (NSUInteger)style
++     scaleFactor: (CGFloat)factor
++{
++  [self offsets: l : r : t : b forStyleMask: style];
++}
++
+++ (NSRect) contentRectForFrameRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++{
++  return [self contentRectForFrameRect: aRect
++			     styleMask: aStyle
++			   scaleFactor: [[NSScreen mainScreen] userSpaceScaleFactor]];
++}
++
+ + (NSRect) contentRectForFrameRect: (NSRect)aRect
+ 			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor
+ {
+   float t = 0.0, b = 0.0, l = 0.0, r = 0.0;
+ 
+-  [self offsets: &l : &r : &t : &b forStyleMask: aStyle];
+-  aRect.size.width -= l + r;
+-  aRect.size.height -= t + b;
+-  aRect.origin.x += l;
+-  aRect.origin.y += b;
+- 
+-  if (0 == (aStyle & NSUnscaledWindowMask))
+-    {
+-      // FIXME: This method should probably take a screen parameter
+-      // rather than assuming the mainScreen
+-      
+-      CGFloat factor = [[NSScreen mainScreen] userSpaceScaleFactor]; 
+-      aRect = RectWithSizeScaledByFactor(aRect, 1/factor);
+-    }
+- return aRect;
++  [self offsets: &l : &r : &t : &b forStyleMask: aStyle scaleFactor: factor];
++  return ContentRectWithOffsets(aRect, aStyle, factor, l, r, t, b);
+ }
+ 
+ + (NSRect) frameRectForContentRect: (NSRect)aRect
+ 			 styleMask: (NSUInteger)aStyle
+ {
+-  float t = 0.0, b = 0.0, l = 0.0, r = 0.0;
+-
+-  [self offsets: &l : &r : &t : &b forStyleMask: aStyle];
+-  if (0 == (aStyle & NSUnscaledWindowMask))
+-    {
+-      // FIXME: This method should probably take a screen parameter
+-      // rather than assuming the mainScreen
++  return [self frameRectForContentRect: aRect
++			     styleMask: aStyle
++			   scaleFactor: [[NSScreen mainScreen] userSpaceScaleFactor]];
++}
+ 
+-      CGFloat factor = [[NSScreen mainScreen] userSpaceScaleFactor];
+-      aRect = RectWithSizeScaledByFactor(aRect, factor);
+-    }
+-  
+-  aRect.size.width += l + r;
+-  aRect.size.height += t + b;
+-  aRect.origin.x -= l;
+-  aRect.origin.y -= b;
+++ (NSRect) frameRectForContentRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor
++{
++  float t = 0.0, b = 0.0, l = 0.0, r = 0.0;
+ 
+-  return aRect;
++  [self offsets: &l : &r : &t : &b forStyleMask: aStyle scaleFactor: factor];
++  return FrameRectWithOffsets(aRect, aStyle, factor, l, r, t, b);
+ }
+ 
+ + (CGFloat) minFrameWidthWithTitle: (NSString *)aTitle
+@@ -154,11 +204,41 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+       // that is including menu, toolbar and the like.
+       contentRect = [object_getClass(self) 
+                         contentRectForFrameRect: frame
+-                        styleMask: [w styleMask]];
++                        styleMask: [w styleMask]
++                        scaleFactor: [w _screenScaleFactor]];
+     }
+   return self;
+ }
+ 
++- (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
++    forStyleMask: (NSUInteger)style
++     scaleFactor: (CGFloat)factor
++{
++  [object_getClass(self) offsets: l : r : t : b
++		    forStyleMask: style
++		     scaleFactor: factor];
++}
++
++- (NSRect) contentRectForFrameRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor
++{
++  float t = 0.0, b = 0.0, l = 0.0, r = 0.0;
++
++  [self offsets: &l : &r : &t : &b forStyleMask: aStyle scaleFactor: factor];
++  return ContentRectWithOffsets(aRect, aStyle, factor, l, r, t, b);
++}
++
++- (NSRect) frameRectForContentRect: (NSRect)aRect
++			 styleMask: (NSUInteger)aStyle
++		       scaleFactor: (CGFloat)factor
++{
++  float t = 0.0, b = 0.0, l = 0.0, r = 0.0;
++
++  [self offsets: &l : &r : &t : &b forStyleMask: aStyle scaleFactor: factor];
++  return FrameRectWithOffsets(aRect, aStyle, factor, l, r, t, b);
++}
++
+ - (void) setHasMenu: (BOOL) flag
+ {
+   hasMenu = flag;
+@@ -182,9 +262,10 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+ - (NSRect) contentRectForFrameRect: (NSRect)aRect
+                          styleMask: (NSUInteger)aStyle
+ {
+-  NSRect content = [object_getClass(self) 
++  NSRect content = [self 
+                        contentRectForFrameRect: aRect
+-                       styleMask: aStyle];
++                       styleMask: aStyle
++                       scaleFactor: [window _screenScaleFactor]];
+   NSToolbar *tb = [_window toolbar];
+ 
+   if ([_window menu] != nil)
+@@ -225,8 +306,9 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+       aRect.size.height += [tv _heightFromLayout];
+     }
+ 
+-  return [object_getClass(self) frameRectForContentRect: aRect
+-                                              styleMask: aStyle];
++  return [self frameRectForContentRect: aRect
++                                              styleMask: aStyle
++                                            scaleFactor: [window _screenScaleFactor]];
+ }
+ 
+ /* If the contentView is removed from the window we must make sure the
+@@ -283,9 +365,10 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+   NSView *windowContentView = [_window contentView];
+ 
+   frame.origin = NSZeroPoint;
+-  contentViewFrame = [object_getClass(self)
++  contentViewFrame = [self
+                          contentRectForFrameRect: frame
+-                         styleMask: [window styleMask]];
++                         styleMask: [window styleMask]
++                         scaleFactor: [window _screenScaleFactor]];
+ 
+   if (hasMenu)
+     {
+@@ -367,9 +450,10 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+     }
+  
+   contentRect.size.height += difference;
+-  windowFrame = [object_getClass(self)
++  windowFrame = [self
+                     frameRectForContentRect: contentRect
+-                    styleMask: [window styleMask]];
++                    styleMask: [window styleMask]
++                    scaleFactor: [window _screenScaleFactor]];
+ 
+   // Set the local frame without changing the contents view
+   windowContentFrame = windowFrame;
+@@ -399,9 +483,10 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+   _autoresizes_subviews = NO;
+   [super setFrame: frameRect];
+ 
+-  contentRect = [object_getClass(self)
++  contentRect = [self
+                     contentRectForFrameRect: frameRect
+-                    styleMask: [window styleMask]];
++                    styleMask: [window styleMask]
++                    scaleFactor: [window _screenScaleFactor]];
+ 
+   // Safety Check.
+   [cv setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
+@@ -585,6 +670,21 @@ static inline NSRect RectWithSizeScaledByFactor(NSRect aRect, CGFloat factor)
+   [GSCurrentServer() styleoffsets: l : r : t : b : style];
+ }
+ 
++- (void) offsets: (float *)l : (float *)r : (float *)t : (float *)b
++    forStyleMask: (NSUInteger)style
++     scaleFactor: (CGFloat)factor
++{
++  if (windowNumber != 0)
++    {
++      [GSServerForWindow(window) styleoffsets: l : r : t : b
++					      : style window: windowNumber];
++    }
++  else
++    {
++      [super offsets: l : r : t : b forStyleMask: style scaleFactor: factor];
++    }
++}
++
+ + (CGFloat) minFrameWidthWithTitle: (NSString *)aTitle
+                          styleMask: (NSUInteger)aStyle
+ {
+diff --git a/Source/NSScreen.m b/Source/NSScreen.m
+index 5a2c0fec0..93827b0b8 100644
+--- a/Source/NSScreen.m
++++ b/Source/NSScreen.m
+@@ -64,6 +64,7 @@
+ }
+ 
+ static NSMutableArray *screenArray = nil;
++static BOOL mixedResolutions = NO;
+ 
+ /**
+  * Resets the cached list of screens.
+@@ -98,6 +99,7 @@ static NSMutableArray *screenArray = nil;
+     }
+ 
+   screenArray = [NSMutableArray new];
++  mixedResolutions = NO;
+ 
+   // Iterate over the list
+   for (index = 0; index < count; index++)
+@@ -107,6 +109,13 @@ static NSMutableArray *screenArray = nil;
+       screen = [[NSScreen alloc] _initWithScreenNumber: 
+                                      [[screens objectAtIndex: index] intValue]];
+       [screenArray addObject: screen];
++      if (index > 0
++        && !NSEqualSizes([srv resolutionForScreen: [screen screenNumber]],
++          [srv resolutionForScreen:
++            [[screenArray objectAtIndex: 0] screenNumber]]))
++        {
++          mixedResolutions = YES;
++        }
+       RELEASE(screen);
+     }
+ 
+@@ -442,7 +451,17 @@ static NSMutableArray *screenArray = nil;
+   NSNumber *factor = [[NSUserDefaults standardUserDefaults]
+ 		       objectForKey: @"GSScaleFactor"];
+ 
+-  if (factor != nil)
++  /* Per-screen factors only when the backend reports monitors of different
++     resolutions; otherwise GSScaleFactor stays the factor of every screen,
++     so single-monitor setups and servers that report the same DPI for all
++     outputs behave as before. */
++  if (mixedResolutions && GSCurrentServer() != nil)
++    {
++      NSSize dpi = [GSCurrentServer() resolutionForScreen: _screenNumber];
++
++      return (dpi.width + dpi.height) / 144.0;
++    }
++  else if (factor != nil)
+     {
+       return [factor floatValue];
+     }
+diff --git a/Source/NSWindow.m b/Source/NSWindow.m
+index a5b80c0c3..fc0154d20 100644
+--- a/Source/NSWindow.m
++++ b/Source/NSWindow.m
+@@ -171,6 +171,15 @@ static GSWindowAnimationDelegate *animationDelegate;
+ - (NSView *) _windowView;
+ - (NSView *) _borderView;
+ - (NSScreen *) _screenForFrame: (NSRect)frame;
++- (void) _updateScaleFactor;
++- (void) _updateScaleFactorFor: (int)reason;
++- (BOOL) _mayRecordScaleSwitch;
++- (void) _forgetScaleSwitches;
+++ (void) _endScaleSwitchPass;
++@end
++
++@interface NSWindow ()
++- (void) _applyFrame: (NSRect)frameRect;
+ @end
+ 
+ @interface NSDrawer (GNUstepPrivate)
+@@ -438,6 +447,248 @@ has blocked and waited for events.
+   return theScreen;
+ }
+ 
++/* Frames are device pixels and the decoration view's bounds carry the
++   scale, so a window that changes to a screen with another factor must
++   get a new pixel size for the same content size in points.  This is
++   the only place where the window's factor (_scaleFactor) changes. */
++/* How a factor switch is asked for: by a window on the screen (a move, a
++   resize, a screen change), by one about to be ordered in, or right after
++   creation for an explicit screen. */
++typedef enum {
++  GSScaleSwitchVisible,
++  GSScaleSwitchOrderIn,
++  GSScaleSwitchCreated
++} GSScaleSwitchReason;
++
++/* Per-window record of the switches, kept outside the instance (NSWindow
++   has no spare ivar left). */
++typedef struct {
++  NSUInteger     pass;
++  NSTimeInterval since;
++  unsigned       count;
++  BOOL           warned;
++} GSScaleSwitchRecord;
++
++static NSMapTable *scaleSwitchRecords = NULL;
++static NSUInteger scaleSwitchPass = 1;
++static BOOL scaleSwitchPassScheduled = NO;
++static NSWindow *scaleSwitchingWindow = nil;
++
+++ (void) _endScaleSwitchPass
++{
++  scaleSwitchPass++;
++  scaleSwitchPassScheduled = NO;
++}
++
++- (void) _forgetScaleSwitches
++{
++  if (scaleSwitchRecords != NULL)
++    {
++      NSMapRemove(scaleSwitchRecords, self);
++    }
++}
++
++/* NO when this window must not switch now: it switched already in this
++   pass of the run loop, or it switched so often lately that it is
++   oscillating (a fight with the window manager or with the screen layout),
++   which would otherwise resize it, and allocate backing store, without end. */
++- (BOOL) _mayRecordScaleSwitch
++{
++  GSScaleSwitchRecord *rec;
++  NSTimeInterval      now = [NSDate timeIntervalSinceReferenceDate];
++
++  if (scaleSwitchRecords == NULL)
++    {
++      scaleSwitchRecords = NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,
++        NSOwnedPointerMapValueCallBacks, 16);
++    }
++  rec = NSMapGet(scaleSwitchRecords, self);
++  if (rec == NULL)
++    {
++      rec = calloc(1, sizeof(GSScaleSwitchRecord));
++      NSMapInsert(scaleSwitchRecords, self, rec);
++    }
++  if (rec->pass == scaleSwitchPass)
++    {
++      return NO;
++    }
++  if (now - rec->since > 2.0)
++    {
++      rec->since = now;
++      rec->count = 0;
++      rec->warned = NO;
++    }
++  if (rec->count >= 6)
++    {
++      if (rec->warned == NO)
++        {
++          NSLog(@"Window %d (%@) changed its scale factor %u times within "
++                @"two seconds; it keeps %g until it rests on one screen.",
++                (int)_windowNum, [self title], rec->count,
++                (double)[self userSpaceScaleFactor]);
++          rec->warned = YES;
++        }
++      return NO;
++    }
++  rec->count++;
++  rec->pass = scaleSwitchPass;
++  if (scaleSwitchPassScheduled == NO)
++    {
++      scaleSwitchPassScheduled = YES;
++      [[NSRunLoop currentRunLoop]
++        performSelector: @selector(_endScaleSwitchPass)
++                 target: [NSWindow class]
++               argument: nil
++                  order: 0
++                  modes: [NSArray arrayWithObjects: NSDefaultRunLoopMode,
++                    NSModalPanelRunLoopMode, NSEventTrackingRunLoopMode, nil]];
++    }
++  return YES;
++}
++
++- (void) _updateScaleFactor
++{
++  [self _updateScaleFactorFor: GSScaleSwitchVisible];
++}
++
++- (void) _updateScaleFactorFor: (int)reason
++{
++  NSScreen   *newScreen;
++  NSWindow   *outer;
++  CGFloat    oldFactor;
++  CGFloat    newFactor;
++  NSRect     content;
++  NSRect     frame;
++  NSSize     size;
++
++  /* A desktop window spans all screens and is never moved to one, so the
++     factor of the screen it overlaps most means nothing for it; switching
++     would resize it away from the screens it has to cover. */
++  if (_wv == nil || (_styleMask & NSUnscaledWindowMask)
++    || _windowLevel <= NSDesktopWindowLevel)
++    {
++      return;
++    }
++  /* A hidden window takes the factor of its screen when it is ordered in;
++     switching it while hidden, with nothing on the screen to judge by,
++     made a window straddling two screens flip at every resize it caused. */
++  if (_f.visible == NO && reason == GSScaleSwitchVisible)
++    {
++      return;
++    }
++  /* The resize of a switch comes back synchronously as a resize event,
++     which asks again; that must not start another switch. */
++  if (scaleSwitchingWindow == self)
++    {
++      return;
++    }
++  oldFactor = [self userSpaceScaleFactor];
++  newScreen = [self screen];
++  newFactor = [newScreen userSpaceScaleFactor];
++  if (fabs(newFactor - oldFactor) < 0.001)
++    {
++      return;
++    }
++
++  /* The frame and the window's offsets both come from events already
++     processed (libs-back keeps the extents it last saw), so they describe
++     the same moment even while the window manager is switching the title
++     bar; the live client area could already be one step ahead. */
++  content = [_wv contentRectForFrameRect: _frame
++                               styleMask: _styleMask
++                             scaleFactor: oldFactor];
++  frame = [_wv frameRectForContentRect: content
++                             styleMask: _styleMask
++                           scaleFactor: newFactor];
++  frame.size.width = rint(NSWidth(frame));
++  frame.size.height = rint(NSHeight(frame));
++  /* Keep the top left corner, which is what a window manager holds while
++     it drags the window, so the resize does not fight the drag.  A window
++     just created for a screen keeps the origin its program gave it. */
++  frame.origin.x = _frame.origin.x;
++  if (reason == GSScaleSwitchCreated)
++    {
++      frame.origin.y = _frame.origin.y;
++    }
++  else
++    {
++      frame.origin.y = NSMaxY(_frame) - NSHeight(frame);
++    }
++
++  /* Hysteresis like the window manager's: another screen takes the window
++     only when, at the size it would have there, it covers more of that
++     screen than of its current one by 8 px across its shorter side.  Judged
++     at each side's own size, the switch cannot undo itself. */
++  if (reason != GSScaleSwitchCreated)
++    {
++      NSEnumerator *e = [[NSScreen screens] objectEnumerator];
++      NSScreen     *s;
++      NSRect       r;
++      CGFloat      current = 0.0;
++      CGFloat      candidate;
++
++      while ((s = [e nextObject]) != nil)
++        {
++          if (fabs([s userSpaceScaleFactor] - oldFactor) < 0.001)
++            {
++              r = NSIntersectionRect(_frame, [s frame]);
++              current = MAX(current, NSWidth(r) * NSHeight(r));
++            }
++        }
++      r = NSIntersectionRect(frame, [newScreen frame]);
++      candidate = NSWidth(r) * NSHeight(r);
++      if (current > 0.0
++        && candidate <= current + 8 * MIN(NSWidth(frame), NSHeight(frame)))
++        {
++          return;
++        }
++    }
++
++  if ([self _mayRecordScaleSwitch] == NO)
++    {
++      return;
++    }
++
++  content = [_wv contentRectForFrameRect:
++                   NSMakeRect(0, 0, _minimumSize.width, _minimumSize.height)
++                               styleMask: _styleMask
++                             scaleFactor: oldFactor];
++  size = [_wv frameRectForContentRect: content
++                            styleMask: _styleMask
++                          scaleFactor: newFactor].size;
++  [self setMinSize: NSMakeSize(rint(size.width), rint(size.height))];
++  if (_maximumSize.width < 10000 && _maximumSize.height < 10000)
++    {
++      content = [_wv contentRectForFrameRect:
++                       NSMakeRect(0, 0, _maximumSize.width, _maximumSize.height)
++                                   styleMask: _styleMask
++                                 scaleFactor: oldFactor];
++      size = [_wv frameRectForContentRect: content
++                                styleMask: _styleMask
++                              scaleFactor: newFactor].size;
++      [self setMaxSize: NSMakeSize(rint(size.width), rint(size.height))];
++    }
++
++  outer = scaleSwitchingWindow;
++  scaleSwitchingWindow = self;
++  _scaleFactor = newFactor;
++  [self _applyFrame: frame];
++  [_wv layout];
++  [_wv setNeedsDisplay: YES];
++  scaleSwitchingWindow = outer;
++
++  [[NSNotificationCenter defaultCenter]
++    postNotificationName: NSWindowDidChangeBackingPropertiesNotification
++                  object: self
++                userInfo: [NSDictionary dictionaryWithObject:
++                  [NSNumber numberWithDouble: oldFactor]
++                  forKey: NSBackingPropertyOldScaleFactorKey]];
++  if (_f.visible)
++    {
++      [self display];
++    }
++}
++
+ @end
+ 
+ 
+@@ -865,6 +1116,7 @@ many times.
+ {
+   // Remove all key value bindings for this object.
+   [GSKeyValueBinding unbindAllForObject: self];
++  [self _forgetScaleSwitches];
+ 
+   DESTROY(_toolbar);
+   [nc removeObserver: self];
+@@ -1122,6 +1374,10 @@ many times.
+   _styleMask = aStyle;
+   ASSIGN(_screen, [NSScreen mainScreen]);
+   _depthLimit = [_screen depth];
++  /* The factor the window is laid out with; it changes only in
++     -_updateScaleFactor, so a layout run for another reason in between
++     (a screen change, a resize) cannot switch it behind the frame's back. */
++  _scaleFactor = [_screen userSpaceScaleFactor];
+ 
+   _frame = [NSWindow frameRectForContentRect: contentRect styleMask: aStyle];
+   _minimumSize = NSMakeSize(_frame.size.width - contentRect.size.width + 1,
+@@ -1220,6 +1476,7 @@ many times.
+     {
+       ASSIGN(_screen, aScreen);
+       _depthLimit = [_screen depth];
++      [self _updateScaleFactorFor: GSScaleSwitchCreated];
+     }
+   return self;
+ }
+@@ -1459,6 +1716,10 @@ titleWithRepresentedFilename(NSString *representedFilename)
+     {
+       return 1.0;
+     }
++  else if (_scaleFactor > 0)
++    {
++      return _scaleFactor;
++    }
+   else if (_screen != nil)
+      {
+        return [_screen userSpaceScaleFactor];
+@@ -1908,6 +2169,10 @@ titleWithRepresentedFilename(NSString *representedFilename)
+          titled windows are constrained. Also, and this is the tricky part,
+          don't constrain if we are merely unhiding the window or if it's
+          already visible and is just being reordered. */
++      if (_f.visible == NO)
++        {
++          [self _updateScaleFactorFor: GSScaleSwitchOrderIn];
++        }
+       if ((_styleMask & NSTitledWindowMask)
+           && [NSApp isHidden] == NO
+           && _f.visible == NO)
+@@ -2410,6 +2675,12 @@ titleWithRepresentedFilename(NSString *representedFilename)
+    * We will recieve an event to tell us when the resize is done.
+    */
+   [self _applyFrame: frameRect];
++  /* A deferred window gets no move event from the backend, so it has to
++     follow the factor of the screen it was moved to here. */
++  if (_windowNum == 0)
++    {
++      [self _updateScaleFactor];
++    }
+ 
+   if (flag)
+     {
+@@ -2900,6 +3171,9 @@ titleWithRepresentedFilename(NSString *representedFilename)
+      coordinates might be unchanged and `setFrame:display:` has check
+      for it. */
+   [self _applyFrame: newFrame];
++  /* The factors of the screens may have changed (a new monitor, another
++     per-monitor DPI), so the window may need another one. */
++  [self _updateScaleFactor];
+   [self display];
+ 
+   if (_autosaveName != nil)
+@@ -3216,7 +3490,9 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
+   if (_f.is_key && _f.cursor_rects_enabled)
+     {
+       NSPoint loc = [self mouseLocationOutsideOfEventStream];
+-      if (NSMouseInRect(loc, [_wv bounds], NO))
++      /* The location is in window coordinates, device pixels, like the
++         frame of the decoration view; its bounds are points. */
++      if (NSMouseInRect(loc, [_wv frame], NO))
+         {
+           NSEvent *e = [NSEvent mouseEventWithType: NSMouseMoved
+                                           location: loc
+@@ -4406,6 +4682,9 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
+                     [nc postNotificationName: NSWindowDidChangeScreenNotification
+                                       object: self];
+                   }
++                /* On every move, not only when the screen changes: with the
++                   hysteresis the factor may switch later in a drag. */
++                [self _updateScaleFactor];
+               }
+               break;
+ 
+@@ -4435,6 +4714,10 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
+                 [self _processResizeEvent];
+                 [nc postNotificationName: NSWindowDidResizeNotification
+                                   object: self];
++                /* A window server move often arrives as a resize event with
++                   a new origin, which can also put the window on a screen
++                   with another factor. */
++                [self _updateScaleFactor];
+                 break;
+               }
+ 
+diff --git a/Source/externs.m b/Source/externs.m
+index bf850a655..e4e4b4154 100644
+--- a/Source/externs.m
++++ b/Source/externs.m
+@@ -456,6 +456,8 @@ APPKIT_DECLARE NSString *NSWindowDidBecomeKeyNotification = @"NSWindowDidBecomeK
+ APPKIT_DECLARE NSString *NSWindowDidBecomeMainNotification = @"NSWindowDidBecomeMainNotification";
+ APPKIT_DECLARE NSString *NSWindowDidChangeScreenNotification = @"NSWindowDidChangeScreenNotification";
+ APPKIT_DECLARE NSString *NSWindowDidChangeScreenProfileNotification = @"NSWindowDidChangeScreenProfileNotification";
++APPKIT_DECLARE NSString *NSWindowDidChangeBackingPropertiesNotification = @"NSWindowDidChangeBackingPropertiesNotification";
++APPKIT_DECLARE NSString *NSBackingPropertyOldScaleFactorKey = @"NSBackingPropertyOldScaleFactorKey";
+ APPKIT_DECLARE NSString *NSWindowDidDeminiaturizeNotification = @"NSWindowDidDeminiaturizeNotification";
+ APPKIT_DECLARE NSString *NSWindowDidEndSheetNotification = @"NSWindowDidEndSheetNotification";
+ APPKIT_DECLARE NSString *NSWindowDidExposeNotification = @"NSWindowDidExposeNotification";
+diff --git a/Tests/gui/GSFakeScreens.h b/Tests/gui/GSFakeScreens.h
+new file mode 100644
+index 000000000..b936c10b9
+--- /dev/null
++++ b/Tests/gui/GSFakeScreens.h
+@@ -0,0 +1,117 @@
++#ifndef GSFakeScreens_h
++#define GSFakeScreens_h
++
++#import <Foundation/Foundation.h>
++#import <AppKit/AppKit.h>
++#import <GNUstepGUI/GSDisplayServer.h>
++
++@interface GSFakeScreens : NSProxy
++{
++  id _server;
++  NSArray *_frames;
++  NSArray *_resolutions;
++}
+++ (GSFakeScreens *) installWithFrames: (NSArray *)frames
++                          resolutions: (NSArray *)resolutions;
++- (void) uninstall;
++@end
++
++@implementation GSFakeScreens
++
+++ (GSFakeScreens *) installWithFrames: (NSArray *)frames
++                          resolutions: (NSArray *)resolutions
++{
++  GSFakeScreens *fake = [GSFakeScreens alloc];
++
++  fake->_server = [GSCurrentServer() retain];
++  fake->_frames = [frames retain];
++  fake->_resolutions = [resolutions retain];
++  [GSDisplayServer setCurrentServer: (GSDisplayServer *)fake];
++  [NSScreen resetScreens];
++  return [fake autorelease];
++}
++
++- (void) uninstall
++{
++  [GSDisplayServer setCurrentServer: _server];
++  [NSScreen resetScreens];
++}
++
++- (void) dealloc
++{
++  [_server release];
++  [_frames release];
++  [_resolutions release];
++  [super dealloc];
++}
++
++- (NSArray *) screenList
++{
++  NSMutableArray *list = [NSMutableArray array];
++  NSUInteger i;
++
++  for (i = 0; i < [_frames count]; i++)
++    {
++      [list addObject: [NSNumber numberWithInt: (int)i]];
++    }
++  return list;
++}
++
++- (NSRect) boundsForScreen: (int)screen
++{
++  return [[_frames objectAtIndex: screen] rectValue];
++}
++
++- (NSSize) resolutionForScreen: (int)screen
++{
++  CGFloat dpi = [[_resolutions objectAtIndex: screen] doubleValue];
++
++  return NSMakeSize(dpi, dpi);
++}
++
++- (NSWindowDepth) windowDepthForScreen: (int)screen
++{
++  return [_server windowDepthForScreen: 0];
++}
++
++- (const NSWindowDepth *) availableDepthsForScreen: (int)screen
++{
++  return [_server availableDepthsForScreen: 0];
++}
++
++- (NSMethodSignature *) methodSignatureForSelector: (SEL)aSelector
++{
++  return [_server methodSignatureForSelector: aSelector];
++}
++
++- (void) forwardInvocation: (NSInvocation *)anInvocation
++{
++  [anInvocation invokeWithTarget: _server];
++}
++
++@end
++
++static inline void
++GSSetScaleFactorArgument(NSString *value)
++{
++  NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
++  NSMutableDictionary *args = [[[defs volatileDomainForName: NSArgumentDomain]
++                                 mutableCopy] autorelease];
++
++  if (args == nil)
++    {
++      args = [NSMutableDictionary dictionary];
++    }
++  if (value == nil)
++    {
++      [args removeObjectForKey: @"GSScaleFactor"];
++    }
++  else
++    {
++      [args setObject: value forKey: @"GSScaleFactor"];
++    }
++  [defs removeVolatileDomainForName: NSArgumentDomain];
++  [defs setVolatileDomain: args forName: NSArgumentDomain];
++}
++
++#endif
+diff --git a/Tests/gui/NSScreen/scaleFactor.m b/Tests/gui/NSScreen/scaleFactor.m
+new file mode 100644
+index 000000000..b1d93261f
+--- /dev/null
++++ b/Tests/gui/NSScreen/scaleFactor.m
+@@ -0,0 +1,62 @@
++#import "Testing.h"
++#import <Foundation/Foundation.h>
++#import <AppKit/AppKit.h>
++#import "../GSFakeScreens.h"
++
++int
++main(int argc, const char **argv)
++{
++  CREATE_AUTORELEASE_POOL(arp);
++
++  START_SET("NSScreen scale factor per screen")
++
++  NS_DURING
++    [NSApplication sharedApplication];
++  NS_HANDLER
++    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
++      SKIP("It looks like GNUstep backend is not yet installed")
++  NS_ENDHANDLER
++
++  {
++    NSArray *frames = [NSArray arrayWithObjects:
++      [NSValue valueWithRect: NSMakeRect(0, 0, 1000, 800)],
++      [NSValue valueWithRect: NSMakeRect(1000, 0, 1000, 800)], nil];
++    GSFakeScreens *fake;
++    NSArray *screens;
++
++    GSSetScaleFactorArgument(@"1.5");
++
++    fake = [GSFakeScreens installWithFrames: frames
++      resolutions: [NSArray arrayWithObjects: @"144", @"72", nil]];
++    screens = [NSScreen screens];
++    PASS([screens count] == 2, "two screens");
++    PASS([[screens objectAtIndex: 0] userSpaceScaleFactor] == 2.0,
++      "a screen of 144 dpi next to one of 72 dpi has the factor 2");
++    PASS([[screens objectAtIndex: 1] userSpaceScaleFactor] == 1.0,
++      "the screen of 72 dpi next to it has the factor 1");
++    [fake uninstall];
++
++    fake = [GSFakeScreens installWithFrames: frames
++      resolutions: [NSArray arrayWithObjects: @"96", @"96", nil]];
++    screens = [NSScreen screens];
++    PASS([[screens objectAtIndex: 0] userSpaceScaleFactor] == 1.5
++      && [[screens objectAtIndex: 1] userSpaceScaleFactor] == 1.5,
++      "screens of the same resolution use GSScaleFactor");
++    [fake uninstall];
++
++    fake = [GSFakeScreens installWithFrames:
++        [NSArray arrayWithObject: [frames objectAtIndex: 0]]
++      resolutions: [NSArray arrayWithObject: @"144"]];
++    screens = [NSScreen screens];
++    PASS([[screens objectAtIndex: 0] userSpaceScaleFactor] == 1.5,
++      "a single screen uses GSScaleFactor");
++    [fake uninstall];
++
++    GSSetScaleFactorArgument(nil);
++  }
++
++  END_SET("NSScreen scale factor per screen")
++
++  DESTROY(arp);
++  return 0;
++}
+diff --git a/Tests/gui/NSWindow/scaleFactor.m b/Tests/gui/NSWindow/scaleFactor.m
+new file mode 100644
+index 000000000..70cb4aeb0
+--- /dev/null
++++ b/Tests/gui/NSWindow/scaleFactor.m
+@@ -0,0 +1,409 @@
++#import "Testing.h"
++#import <Foundation/Foundation.h>
++#import <AppKit/AppKit.h>
++#import "../GSFakeScreens.h"
++#import <GNUstepGUI/GSTrackingRect.h>
++
++@interface BackingObserver : NSObject
++{
++@public
++  int count;
++  CGFloat oldFactor;
++}
++@end
++
++@implementation BackingObserver
++- (void) changed: (NSNotification *)n
++{
++  count++;
++  oldFactor = [[[n userInfo]
++    objectForKey: NSBackingPropertyOldScaleFactorKey] doubleValue];
++}
++@end
++
++/* A window switches its factor at most once per pass of the run loop,
++   so a test that moves it again has to let the pass end first. */
++static void
++endPass(void)
++{
++  [[NSRunLoop currentRunLoop] runUntilDate:
++    [NSDate dateWithTimeIntervalSinceNow: 0.02]];
++}
++
++/* A view with one cursor rect over all of it. */
++@interface CursorRectView : NSView
++@end
++
++@implementation CursorRectView
++- (void) resetCursorRects
++{
++  [self addCursorRect: [self bounds] cursor: [NSCursor IBeamCursor]];
++}
++- (NSRect) cursorRectInWindow
++{
++  GSTrackingRect *r = [[self valueForKey: @"_cursor_rects"] lastObject];
++
++  return r ? [r rectangle] : NSZeroRect;
++}
++@end
++
++/* A window that lays itself out at a factor of its own choosing. */
++@interface FixedFactorWindow : NSWindow
++@end
++
++@implementation FixedFactorWindow
++- (CGFloat) userSpaceScaleFactor
++{
++  return 2.0;
++}
++@end
++
++int
++main(int argc, const char **argv)
++{
++  CREATE_AUTORELEASE_POOL(arp);
++
++  START_SET("NSWindow scale factor of its screen")
++
++  NS_DURING
++    [NSApplication sharedApplication];
++  NS_HANDLER
++    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
++      SKIP("It looks like GNUstep backend is not yet installed")
++  NS_ENDHANDLER
++
++  {
++    NSArray *frames = [NSArray arrayWithObjects:
++      [NSValue valueWithRect: NSMakeRect(0, 0, 1000, 800)],
++      [NSValue valueWithRect: NSMakeRect(1000, 0, 1000, 800)], nil];
++    NSUInteger style = NSTitledWindowMask | NSResizableWindowMask;
++    GSFakeScreens *fake;
++    NSArray *screens;
++    NSWindow *w1;
++    NSWindow *w2;
++    NSRect content;
++
++    GSSetScaleFactorArgument(nil);
++    fake = [GSFakeScreens installWithFrames: frames
++      resolutions: [NSArray arrayWithObjects: @"144", @"72", nil]];
++    screens = [NSScreen screens];
++
++    w1 = AUTORELEASE([[NSWindow alloc]
++      initWithContentRect: NSMakeRect(100, 100, 200, 100)
++                styleMask: style
++                  backing: NSBackingStoreBuffered
++                    defer: YES
++                   screen: [screens objectAtIndex: 0]]);
++    w2 = AUTORELEASE([[NSWindow alloc]
++      initWithContentRect: NSMakeRect(1100, 100, 200, 100)
++                styleMask: style
++                  backing: NSBackingStoreBuffered
++                    defer: YES
++                   screen: [screens objectAtIndex: 1]]);
++
++    PASS([w1 userSpaceScaleFactor] == 2.0, "a window on the 144 dpi screen has the factor 2");
++    PASS([w2 userSpaceScaleFactor] == 1.0, "a window on the 72 dpi screen has the factor 1");
++    PASS(NSEqualSizes([[w1 contentView] frame].size, NSMakeSize(200, 100))
++      && NSEqualSizes([[w2 contentView] frame].size, NSMakeSize(200, 100)),
++      "both content views have the size they were created with");
++    content = [w1 contentRectForFrameRect: [w1 frame]];
++    PASS(NSEqualSizes(content.size, NSMakeSize(200, 100)),
++      "the content rect of the first window is converted with its factor");
++    content = [w2 contentRectForFrameRect: [w2 frame]];
++    PASS(NSEqualSizes(content.size, NSMakeSize(200, 100)),
++      "the content rect of the second window is converted with its factor");
++    PASS(NSWidth([w1 frame]) - NSWidth([w2 frame]) == 200
++      && NSHeight([w1 frame]) - NSHeight([w2 frame]) >= 100,
++      "the frame on the 144 dpi screen has twice as many pixels of content");
++    PASS(NSEqualPoints([w2 frame].origin, NSMakePoint(1100, 100)),
++      "a window created for a screen keeps the origin it was given");
++
++    {
++      BackingObserver *obs = AUTORELEASE([BackingObserver new]);
++      NSRect before;
++
++      [[NSNotificationCenter defaultCenter] addObserver: obs
++        selector: @selector(changed:)
++        name: NSWindowDidChangeBackingPropertiesNotification
++        object: w1];
++
++      [w1 orderFront: nil];
++      endPass();
++      before = [w1 frame];
++      [w1 setFrameOrigin: NSMakePoint(1100, 100)];
++      endPass();
++      PASS([w1 userSpaceScaleFactor] == 1.0,
++        "a window moved to the 72 dpi screen takes its factor");
++      PASS(NSEqualSizes([[w1 contentView] frame].size, NSMakeSize(200, 100)),
++        "its content view keeps its size in points");
++      PASS(NSWidth([w1 frame]) == NSWidth(before) - 200
++        && NSHeight([w1 frame]) == NSHeight(before) - 100,
++        "its frame loses the pixels of the factor");
++      PASS(obs->count == 1 && obs->oldFactor == 2.0,
++        "NSWindowDidChangeBackingPropertiesNotification is posted with the old factor");
++
++      [w1 setFrameOrigin: NSMakePoint(100, 100)];
++
++      endPass();
++      PASS([w1 userSpaceScaleFactor] == 2.0
++        && NSEqualSizes([w1 frame].size, before.size)
++        && NSEqualSizes([[w1 contentView] frame].size, NSMakeSize(200, 100)),
++        "moving it back restores factor and frame");
++      PASS(obs->count == 2 && obs->oldFactor == 1.0,
++        "the notification is posted again with the factor of the second screen");
++
++      [w1 setFrameOrigin: NSMakePoint(150, 150)];
++
++      endPass();
++      PASS(obs->count == 2 && NSEqualSizes([w1 frame].size, before.size),
++        "a move within the screen changes nothing");
++
++      [[NSNotificationCenter defaultCenter] removeObserver: obs];
++    }
++
++    {
++      NSWindow *w3 = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(300, 300, 200, 100)
++                  styleMask: NSBorderlessWindowMask
++                    backing: NSBackingStoreBuffered
++                      defer: NO]);
++      NSRect before;
++
++      [w3 orderFront: nil];
++      before = [w3 frame];
++      [w3 setFrameOrigin: NSMakePoint(1300, 300)];
++      endPass();
++      PASS([w3 userSpaceScaleFactor] == 1.0
++        && NSEqualSizes([[w3 contentView] frame].size, NSMakeSize(200, 100)),
++        "a visible window moved to the other screen takes its factor");
++      PASS(NSMinX([w3 frame]) == 1300
++        && NSMaxY([w3 frame]) == 300 + NSHeight(before),
++        "a visible window keeps its top left corner");
++
++      [w3 setFrameOrigin: NSMakePoint(905, 300)];
++
++      endPass();
++      PASS([w3 userSpaceScaleFactor] == 1.0,
++        "a window mostly on the 72 dpi screen keeps its factor");
++      [w3 setFrameOrigin: NSMakePoint(880, 300)];
++      endPass();
++      PASS([w3 userSpaceScaleFactor] == 2.0
++        && NSEqualSizes([[w3 contentView] frame].size, NSMakeSize(200, 100)),
++        "it takes the other factor once it would be mostly on that screen at its size there");
++      PASS(NSMinX([w3 frame]) == 880,
++        "the switch does not move the window");
++      [w3 setFrameOrigin: NSMakePoint(881, 300)];
++      endPass();
++      PASS([w3 userSpaceScaleFactor] == 2.0,
++        "a small move back does not switch the factor again");
++      [w3 setFrameOrigin: NSMakePoint(920, 300)];
++      endPass();
++      PASS([w3 userSpaceScaleFactor] == 2.0,
++        "nor does a move that would leave it mostly on its screen at the other size");
++      [w3 setFrameOrigin: NSMakePoint(1010, 300)];
++      endPass();
++      PASS([w3 userSpaceScaleFactor] == 1.0,
++        "a move past that margin switches it");
++      [w3 orderOut: nil];
++    }
++
++    {
++      NSWindow *desk = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(0, 0, 1000, 400)
++                  styleMask: NSBorderlessWindowMask
++                    backing: NSBackingStoreBuffered
++                      defer: YES]);
++      CGFloat factor;
++      NSRect full = NSMakeRect(0, 0, 2000, 800);
++
++      [desk setLevel: NSDesktopWindowLevel];
++      [desk setFrame: full display: NO];
++      factor = [desk userSpaceScaleFactor];
++      [desk orderFront: nil];
++      PASS([desk userSpaceScaleFactor] == factor
++        && NSEqualRects([desk frame], full),
++        "a desktop window spanning both screens keeps factor and frame when shown");
++      [desk setFrame: NSMakeRect(500, 0, 1500, 800) display: NO];
++      PASS([desk userSpaceScaleFactor] == factor
++        && NSEqualRects([desk frame], NSMakeRect(500, 0, 1500, 800)),
++        "a desktop window mostly on the other screen keeps its factor and the frame it was given");
++      [desk setFrame: full display: NO];
++      PASS([desk userSpaceScaleFactor] == factor
++        && NSEqualRects([desk frame], full),
++        "and covers both screens again with the frame it is given");
++      [desk orderOut: nil];
++    }
++
++    {
++      /* Hidden, straddling the edge: it has nothing on the screen to judge
++         by, so it keeps its factor until it is ordered in. */
++      NSWindow *hidden = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(900, 300, 200, 100)
++                  styleMask: style
++                    backing: NSBackingStoreBuffered
++                      defer: YES
++                     screen: [screens objectAtIndex: 0]]);
++      CGFloat factor = [hidden userSpaceScaleFactor];
++      NSSize size = [hidden frame].size;
++      int i;
++
++      for (i = 0; i < 5; i++)
++        {
++          [hidden setFrameOrigin: NSMakePoint(i % 2 ? 700 : 900, 300)];
++          endPass();
++        }
++      PASS([hidden userSpaceScaleFactor] == factor
++        && NSEqualSizes([hidden frame].size, size),
++        "a hidden window moved over the edge keeps its factor and size");
++      [hidden setFrameOrigin: NSMakePoint(1300, 300)];
++      [hidden orderFront: nil];
++      PASS([hidden userSpaceScaleFactor] == 1.0
++        && NSEqualSizes([[hidden contentView] frame].size, NSMakeSize(200, 100)),
++        "it takes the factor of its screen when it is ordered in");
++      [hidden orderOut: nil];
++    }
++
++    {
++      BackingObserver *obs = AUTORELEASE([BackingObserver new]);
++      NSWindow *w5 = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(300, 300, 200, 100)
++                  styleMask: NSBorderlessWindowMask
++                    backing: NSBackingStoreBuffered
++                      defer: NO]);
++      int i;
++
++      [w5 orderFront: nil];
++      endPass();
++      [[NSNotificationCenter defaultCenter] addObserver: obs
++        selector: @selector(changed:)
++        name: NSWindowDidChangeBackingPropertiesNotification
++        object: w5];
++      [w5 setFrameOrigin: NSMakePoint(1300, 300)];
++      [w5 setFrameOrigin: NSMakePoint(300, 300)];
++      PASS(obs->count == 1 && [w5 userSpaceScaleFactor] == 1.0,
++        "a window switches its factor at most once per pass of the run loop");
++      endPass();
++      [w5 setFrameOrigin: NSMakePoint(310, 300)];
++      PASS(obs->count == 2 && [w5 userSpaceScaleFactor] == 2.0,
++        "in the next pass it may switch again");
++      endPass();
++      for (i = 0; i < 10; i++)
++        {
++          [w5 setFrameOrigin: NSMakePoint(i % 2 ? 300 : 1300, 300)];
++          endPass();
++        }
++      PASS(obs->count == 6,
++        "a window flipping back and forth stops after six switches in two seconds");
++      [[NSNotificationCenter defaultCenter] removeObserver: obs];
++      [w5 orderOut: nil];
++    }
++
++    {
++      /* Cursor rects are kept in window coordinates, device pixels: they
++         must cover the view's pixels at the window's factor. */
++      NSWindow *cw = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(100, 300, 200, 100)
++                  styleMask: NSBorderlessWindowMask
++                    backing: NSBackingStoreBuffered
++                      defer: NO
++                     screen: [screens objectAtIndex: 0]]);
++      CursorRectView *cv = AUTORELEASE([[CursorRectView alloc]
++        initWithFrame: NSMakeRect(0, 0, 200, 100)]);
++      NSRect pixels;
++
++      [cw setContentView: cv];
++      [cw orderFront: nil];
++      endPass();
++      [cw resetCursorRects];
++      pixels = [cv convertRect: [cv bounds] toView: nil];
++      PASS(NSEqualRects([cv cursorRectInWindow], pixels)
++        && NSWidth(pixels) == 200 * [cw userSpaceScaleFactor],
++        "a cursor rect covers the view's device pixels on a 2.0 screen");
++      [cw setFrameOrigin: NSMakePoint(1300, 300)];
++      endPass();
++      [cw resetCursorRects];
++      pixels = [cv convertRect: [cv bounds] toView: nil];
++      PASS([cw userSpaceScaleFactor] == 1.0
++        && NSEqualRects([cv cursorRectInWindow], pixels)
++        && NSWidth(pixels) == 200,
++        "rebuilt after the window took another factor, they cover its pixels at that factor");
++      [cw orderOut: nil];
++    }
++
++    [fake uninstall];
++
++    fake = [GSFakeScreens installWithFrames: frames
++      resolutions: [NSArray arrayWithObjects: @"72", @"72", nil]];
++    {
++      BackingObserver *obs = AUTORELEASE([BackingObserver new]);
++      NSWindow *w4 = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(100, 100, 200, 100)
++                  styleMask: style
++                  backing: NSBackingStoreBuffered
++                    defer: YES]);
++      NSRect before = [w4 frame];
++
++      [[NSNotificationCenter defaultCenter] addObserver: obs
++        selector: @selector(changed:)
++        name: NSWindowDidChangeBackingPropertiesNotification
++        object: w4];
++      [w4 setFrameOrigin: NSMakePoint(1100, 100)];
++      PASS(obs->count == 0 && NSEqualSizes([w4 frame].size, before.size),
++        "with one factor for all screens a move changes nothing");
++      [[NSNotificationCenter defaultCenter] removeObserver: obs];
++    }
++    {
++      /* Laid out at the factor of two 72 dpi screens (GSScaleFactor if
++         set), then the screens become 216 and 144 dpi: no screen has the
++         window's factor any more, which makes an ordinary window take the
++         new one at its next move. */
++      CGFloat factor;
++      NSWindow *desk = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(0, 0, 2000, 800)
++                  styleMask: NSBorderlessWindowMask
++                    backing: NSBackingStoreBuffered
++                      defer: YES]);
++      NSRect full = NSMakeRect(0, 0, 2000, 800);
++
++      [desk setLevel: NSDesktopWindowLevel];
++      [desk setFrame: full display: NO];
++      [desk orderFront: nil];
++      factor = [desk userSpaceScaleFactor];
++      [fake uninstall];
++      fake = [GSFakeScreens installWithFrames: frames
++        resolutions: [NSArray arrayWithObjects: @"216", @"144", nil]];
++      [desk setFrame: NSMakeRect(0, 1, 2000, 800) display: NO];
++      [desk setFrame: full display: NO];
++      PASS([desk userSpaceScaleFactor] == factor
++        && NSEqualRects([desk frame], full)
++        && NSEqualSizes([[desk contentView] frame].size,
++          NSMakeSize(NSWidth(full) / factor, NSHeight(full) / factor)),
++        "a desktop window keeps its factor and frame when the screens change theirs");
++      [desk orderOut: nil];
++    }
++    {
++      /* The decoration view must convert the frame with the factor the
++         window reports, or a subclass that overrides it gets bounds of
++         one factor and a content view sized with another. */
++      NSWindow *fixed = AUTORELEASE([[FixedFactorWindow alloc]
++        initWithContentRect: NSMakeRect(0, 0, 200, 100)
++                  styleMask: NSBorderlessWindowMask
++                    backing: NSBackingStoreBuffered
++                      defer: YES]);
++
++      NSSize frameSize;
++
++      [fixed setFrame: NSMakeRect(0, 0, 400, 200) display: NO];
++      frameSize = [fixed frame].size;
++      PASS(NSEqualSizes([[fixed contentView] frame].size,
++          NSMakeSize(frameSize.width / 2, frameSize.height / 2)),
++        "a window overriding -userSpaceScaleFactor gets a content view of its frame at that factor");
++    }
++    [fake uninstall];
++  }
++
++  END_SET("NSWindow scale factor of its screen")
++
++  DESTROY(arp);
++  return 0;
++}
