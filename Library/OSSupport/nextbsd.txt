@@ -20,7 +20,6 @@ openssl
 freeglut
 giflib
 libao
-dbus
 libxcb
 xcb-util-cursor
 xcb-util
