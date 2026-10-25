@@ -28,6 +28,7 @@ xcb-util-cursor
 xcb-util-wm
 xorg-xrandr
 libxrandr
+libxcursor
 wget
 cups
 libxcomposite

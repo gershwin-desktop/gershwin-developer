@@ -27,6 +27,7 @@ xcb-util
 xcb-util-wm
 xrandr
 libXrandr
+libXcursor
 wget
 curl
 cups

@@ -30,6 +30,7 @@ xcb-util-cursor-devel
 xcb-util-wm-devel
 xrandr
 libXrandr-devel
+libXcursor-devel
 wget
 cups-devel
 libXcomposite-devel

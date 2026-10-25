@@ -46,6 +46,7 @@ libxcb-damage0-dev
 libxcb-present-dev
 x11-xserver-utils
 libxrandr-dev
+libxcursor-dev
 wget
 sudo
 libcups2-dev
