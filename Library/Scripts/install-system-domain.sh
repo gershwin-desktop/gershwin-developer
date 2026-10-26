@@ -56,6 +56,17 @@ if [ -d "/usr/lib/system" ]; then
   esac
   BUILD_FLAG="--build=${ARCH}-nextbsd-freebsd"
   CMAKE_SYSTEM_FLAG="-DCMAKE_SYSTEM_NAME=FreeBSD"
+  # NextBSD's base system ships Apple's libxml2 (libxml2.so.2), libxslt
+  # (libxslt.so.1) and ICU (libicucore), with their .pc files in
+  # /usr/libdata/pkgconfig. Ports such as ffmpeg and freerdp still pull in
+  # FreeBSD's libxml2 and ICU under /usr/local, and pkgconf searches
+  # /usr/local/libdata/pkgconfig first, so without this libs-base built against
+  # the ports copies. At run time ld-elf.so.1 then loaded base's
+  # /usr/lib/libxslt.so.1 (same soname as the port, earlier in the search path)
+  # and the first GNUstep tool failed with "version LIBXML2_1.0.11 ... not
+  # defined". PKG_CONFIG_PATH is searched before pkgconf's default dirs, so
+  # libs-base, libs-corebase and libs-gui configure against base instead.
+  BASE_PKG_CONFIG_PATH="/usr/libdata/pkgconfig"
 else
   NEXTBSD=0
   BUILD_FLAG=""
@@ -362,7 +373,7 @@ build_libsbase() {
     # dispatch/objc/BlocksRuntime keep linking from the Gershwin (non-Mach)
     # domain; /usr/lib/system is only for the base-only libdns_sd. Runtime
     # dispatch resolution is unchanged (governed by RUNPATH, verified via ldd).
-    ./configure \
+    PKG_CONFIG_PATH="$BASE_PKG_CONFIG_PATH" ./configure \
       $BUILD_FLAG \
       --with-dispatch-include=/usr/include \
       --with-dispatch-library=/System/Library/Libraries \
@@ -459,10 +470,18 @@ build_libscorebase() {
   ensure_gnustep_env
 
   cd "$REPOS_DIR/libs-corebase"
-  ./configure \
-    $BUILD_FLAG \
-    CPPFLAGS="-I/System/Library/Headers" \
-    LDFLAGS="-L/System/Library/Libraries"
+  if [ "$NEXTBSD" -eq 1 ]; then
+    # Base's ICU (libicucore), not the ports copy; see BASE_PKG_CONFIG_PATH.
+    PKG_CONFIG_PATH="$BASE_PKG_CONFIG_PATH" ./configure \
+      $BUILD_FLAG \
+      CPPFLAGS="-I/System/Library/Headers" \
+      LDFLAGS="-L/System/Library/Libraries"
+  else
+    ./configure \
+      $BUILD_FLAG \
+      CPPFLAGS="-I/System/Library/Headers" \
+      LDFLAGS="-L/System/Library/Libraries"
+  fi
   $MAKE_CMD -j"$CPUS" || exit 1
   $MAKE_CMD install
   $MAKE_CMD clean
@@ -476,7 +495,21 @@ build_libsgui() {
   patch.sh libs-gui
 
   cd "$REPOS_DIR/libs-gui"
-  ./configure $BUILD_FLAG
+  if [ "$NEXTBSD" -eq 1 ]; then
+    # NextBSD's ICU is Apple's libicucore: headers in /usr/include/icucore,
+    # library in /usr/lib/system, described by icu-i18n.pc. libs-gui's configure
+    # tries icu-config first, which only the ports ICU has, so ICU_CONFIG=no
+    # skips it. It then finds icu-i18n.pc but checks the unicode/*.h headers
+    # WITHOUT the module's cflags, so the check fails and it falls back to
+    # hard-coded -licui18n -licuuc -licudata (which base doesn't have), and the
+    # link of libgnustep-gui fails. Passing the cflags lets the pkg-config path
+    # succeed (ICU_LIBS = -L/usr/lib/system -licucore); configure also records
+    # them in config.make (CONFIG_SYSTEM_INCL) for the build.
+    PKG_CONFIG_PATH="$BASE_PKG_CONFIG_PATH" ICU_CONFIG=no ./configure $BUILD_FLAG \
+      CPPFLAGS="$(PKG_CONFIG_PATH="$BASE_PKG_CONFIG_PATH" pkg-config --cflags icu-i18n)"
+  else
+    ./configure $BUILD_FLAG
+  fi
   if [ "$WINDOWS" -eq 1 ]; then
     $MAKE_CMD -j"$CPUS" OBJCFLAGS="$WIN_OBJCFLAGS" || exit 1
     return
