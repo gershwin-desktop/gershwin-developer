@@ -60,7 +60,9 @@
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <GNUstepGUI/GSDisplayServer.h>
 #import "DriveUITreeFormat.h"
+#import "DriveUISocket.h"
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/stat.h>
@@ -124,10 +126,12 @@
                       index:(NSInteger *)outIndex error:(NSString **)err;
 - (void)addWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items;
 - (void)addView:(NSView *)view depth:(int)depth into:(NSMutableArray *)items;
+- (void)addToolbarOfWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items;
 - (NSString *)selectTabItemOnMainThread:(NSTabViewItem *)item;
 - (NSString *)objectIDForObject:(id)obj;
 - (id)objectForID:(NSString *)objID;
 - (NSString *)snapshotLines;
+- (NSWindow *)frontWindow;
 @end
 
 @implementation DriveUI
@@ -209,28 +213,14 @@ static void WriteAll(int fd, const char *bytes)
   pid_t pid = [[NSProcessInfo processInfo] processIdentifier];
   NSString *sockPath = [NSString stringWithFormat: @"/tmp/driveui.%d.sock", pid];
 
-  unlink([sockPath UTF8String]);
-
-  int lfd = socket(AF_UNIX, SOCK_STREAM, 0);
+  NSString *why = nil;
+  int lfd = DriveUIOpenListener(sockPath, &why);
   if (lfd < 0)
     {
+      NSLog(@"DriveUI: no server in this app, %@", why);
       [pool release];
       return;
     }
-
-  struct sockaddr_un addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sun_family = AF_UNIX;
-  strncpy(addr.sun_path, [sockPath UTF8String], sizeof(addr.sun_path) - 1);
-
-  if (bind(lfd, (struct sockaddr *)&addr, sizeof(addr)) < 0
-      || listen(lfd, 8) < 0)
-    {
-      close(lfd);
-      [pool release];
-      return;
-    }
-  chmod([sockPath UTF8String], 0666);
 
   for (;;)
     {
@@ -357,6 +347,26 @@ static void WriteAll(int fd, const char *bytes)
               if ([name length] == 0) name = @"unknown";
               NSString *reply = [name stringByAppendingString: @"\n"];
               WriteAll(fd, [reply UTF8String]);
+            }
+          else if ([cmd isEqualToString: @"front_window"])
+            {
+              /* Read-only: "<xid>\t<key>" - the X window id of the window a
+               * user brings forward when switching to this app (0 when it has
+               * none), and 1 when that window already has the keyboard.
+               * Activating an app must not click into it: a click lands on
+               * whatever is there first - a Dock icon launches an app, a
+               * desktop icon gets selected. */
+              NSWindow *front = [self frontWindow];
+              unsigned long xid = 0;
+              BOOL key = NO;
+              if (front != nil)
+                {
+                  xid = (unsigned long)(uintptr_t)[GSCurrentServer()
+                          windowDevice: [front windowNumber]];
+                  key = [NSApp isActive] && [front isKeyWindow];
+                }
+              WriteAll(fd, [[NSString stringWithFormat: @"%lu\t%d\n",
+                              xid, key ? 1 : 0] UTF8String]);
             }
           else if ([cmd isEqualToString: @"windows"])
             {
@@ -491,14 +501,20 @@ static void WriteAll(int fd, const char *bytes)
               /* Report the app's current modal window, if any.  This lets
                * scripts detect dialogs/alerts that block interaction and
                * dismiss them before continuing.  Reply is
-               * "none" or "<Class>|<title>". */
+               * "none" or "<Class>|<title>|<frame>".  The frame is there
+               * because a dialog attached as a sheet slides out from under
+               * its parent's titlebar: the modal session exists from the
+               * first frame of that slide, but a click computed while the
+               * window is still moving lands beside the button.  The
+               * harness compares two frames to know when the slide is over. */
               NSString *reply = @"none\n";
               NSWindow *mw = [NSApp modalWindow];
               if (mw != nil)
                 {
                   NSString *title = [mw title] ?: @"";
-                  reply = [NSString stringWithFormat: @"%@|%@\n",
-                    NSStringFromClass ([mw class]), title];
+                  reply = [NSString stringWithFormat: @"%@|%@|%@\n",
+                    NSStringFromClass ([mw class]), title,
+                    NSStringFromRect ([mw frame])];
                 }
               WriteAll(fd, [reply UTF8String]);
             }
@@ -1101,6 +1117,37 @@ static NSString *ShortcutForItem(NSMenuItem *item)
 
 /* ---- snapshot builder (main thread) ---- */
 
+/* The front-most visible window that can be the app's main window (a
+ * document or viewer, or a desktop window below everything), else the
+ * front-most one that can take the keyboard.  Panels, menus and a dock
+ * cannot, so they are never what switching to the app brings forward. */
+- (NSWindow *)frontWindow
+{
+  NSArray *ordered = GSOrderedWindows();
+  NSWindow *chosen = nil;
+
+  for (NSWindow *win in ordered)
+    {
+      if ([win isVisible] && [win canBecomeMainWindow])
+        {
+          chosen = win;
+          break;
+        }
+    }
+  if (chosen == nil)
+    {
+      for (NSWindow *win in ordered)
+        {
+          if ([win isVisible] && [win canBecomeKeyWindow])
+            {
+              chosen = win;
+              break;
+            }
+        }
+    }
+  return chosen;
+}
+
 - (void)buildSnapshot:(id)unused
 {
   NSArray *fresh = [self collectSnapshot];
@@ -1172,6 +1219,7 @@ static NSString *ShortcutForItem(NSMenuItem *item)
                           nil]];
 
       [self addView: [win contentView] depth: depth + 1 into: items];
+      [self addToolbarOfWindow: win depth: depth + 1 into: items];
     }
   @catch (NSException *e) { }
 }
@@ -1316,12 +1364,99 @@ static NSString *ShortcutForItem(NSMenuItem *item)
             }
         }
 
+      if ([view isKindOfClass: [NSSegmentedControl class]])
+        {
+          /* Segments are drawn by the control's cell, not subviews, and each
+           * has its own enabled state (Back without history): one pseudo-row
+           * per segment, named by its label or else its tool tip, with its
+           * own frame so a click lands on that segment.  The text column
+           * carries "*" after the name while the segment is selected. */
+          NSSegmentedControl *sc = (NSSegmentedControl *) view;
+          NSSegmentedCell *cell = (NSSegmentedCell *) [sc cell];
+          NSInteger n = [sc segmentCount];
+          NSRect bounds = [sc bounds];
+          CGFloat x = NSMinX(bounds);
+          NSWindow *w2 = [view window];
+          for (NSInteger i = 0; i < n; i++)
+            {
+              CGFloat width = [sc widthForSegment: i];
+              if (width <= 0.0)
+                width = (NSMaxX(bounds) - x) / (n - i);
+              NSRect r = NSMakeRect(x, NSMinY(bounds), width, NSHeight(bounds));
+              x += width;
+              NSString *name = [sc labelForSegment: i];
+              if ([name length] == 0)
+                name = [cell toolTipForSegment: i];
+              if (name == nil)
+                name = @"";
+              if ([cell isSelectedForSegment: i])
+                name = [name stringByAppendingString: @" *"];
+              NSString *sf = w2 ? NSStringFromRect([w2 convertRectToScreen:
+                                    [view convertRect: r toView: nil]]) : @"";
+              BOOL segEnabled = [sc isEnabled] && [sc isEnabledForSegment: i];
+              [items addObject: [NSArray arrayWithObjects:
+                [NSNumber numberWithInt: depth + 1],
+                @"NSSegment",
+                name,
+                [NSString stringWithFormat: @"%ld", (long)i],
+                NSStringFromRect(r),
+                sf,
+                [NSNumber numberWithInt: viewHidden ? 1 : 0],
+                segEnabled ? @"1" : @"0",
+                [NSString stringWithFormat: @"%@.%ld",
+                  [self objectIDForObject: sc], (long)i],
+                ownTitle,
+                @"low",
+                nil]];
+            }
+        }
+
       for (NSView *sub in [view subviews])
         {
           [self addView: sub depth: depth + 1 into: items];
         }
     }
   @catch (NSException *e) { }
+}
+
+/* Toolbar items live in the window's decoration view, outside the content
+ * view the tree is built from.  Each item gets a row named by its label
+ * (the item's own tag, framed like its view), with its view's tree below
+ * it; items without a view of their own (spaces) are left out. */
+- (void)addToolbarOfWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items
+{
+  NSToolbar *toolbar = [win toolbar];
+
+  if (toolbar == nil || [toolbar isVisible] == NO)
+    return;
+
+  for (NSToolbarItem *item in [toolbar items])
+    {
+      NSView *view = [item view];
+      NSString *sf;
+      BOOL enabled;
+
+      if (view == nil || [view window] == nil)
+        continue;
+      sf = NSStringFromRect([win convertRectToScreen:
+                              [view convertRect: [view bounds] toView: nil]]);
+      enabled = [view respondsToSelector: @selector(isEnabled)]
+        ? [(id)view isEnabled] : [item isEnabled];
+      [items addObject: [NSArray arrayWithObjects:
+        [NSNumber numberWithInt: depth],
+        NSStringFromClass([item class]),
+        [item label] ?: @"",
+        [NSString stringWithFormat: @"%ld", (long)[item tag]],
+        NSStringFromRect([view frame]),
+        [win isVisible] ? sf : @"",
+        [NSNumber numberWithInt: [win isVisible] ? 0 : 1],
+        enabled ? @"1" : @"0",
+        [self objectIDForObject: item],
+        [win title] ?: @"",
+        [item tag] != 0 ? @"high" : @"low",
+        nil]];
+      [self addView: view depth: depth + 1 into: items];
+    }
 }
 
 /* Emit one tree entry per table row (first-column text + on-screen rect) so
@@ -1424,6 +1559,13 @@ static BOOL DUIViewTreeContains(NSView *view, void *ptr)
       if ((void *)win == ptr) return win;
       if (DUIViewTreeContains([win contentView], ptr))
         return (__bridge id)ptr;
+      for (NSToolbarItem *item in [[win toolbar] items])
+        {
+          if ((void *)item == ptr)
+            return item;
+          if ([item view] != nil && DUIViewTreeContains([item view], ptr))
+            return (__bridge id)ptr;
+        }
     }
   return nil;
 }

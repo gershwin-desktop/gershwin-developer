@@ -5,7 +5,6 @@ libtiff
 libpng
 lcms2
 libicns
-imagemagick
 libxml2
 libxslt
 gnutls
@@ -29,12 +28,15 @@ xcb-util-cursor
 xcb-util-wm
 xorg-xrandr
 libxrandr
+libxcursor
 wget
 cups
 libxcomposite
+libxtst
 autoconf
 automake
 libtool
 ffmpeg
 sqlite
 xdotool
+alsa-lib

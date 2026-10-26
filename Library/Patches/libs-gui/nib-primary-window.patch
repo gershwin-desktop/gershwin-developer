@@ -1,0 +1,57 @@
+diff --git a/Source/GSNibLoading.m b/Source/GSNibLoading.m
+index 8a42c72d8..7604464f5 100644
+--- a/Source/GSNibLoading.m
++++ b/Source/GSNibLoading.m
+@@ -2030,13 +2030,45 @@ static BOOL _isInInterfaceBuilder = NO;
+       [owner prepareForInterfaceBuilder];
+     }
+ 
+-  // bring visible windows to front...
+-  en = [_visibleWindows objectEnumerator];
+-  while ((obj = [en nextObject]) != nil)
+-    {
+-      id w = [obj realObject];
+-      [w orderFront: self];
+-    }
++  // Bring the nib's primary window to front. The primary window is the one
++  // the File's Owner's 'window' outlet points to. We prefer this over
++  // NSVisibleWindows because some nib conversion tools leave NSVisibleWindows
++  // empty (or mark every top-level window visible, which floods the screen
++  // with dialogs at nib load). Showing only the owner's main window gives the
++  // correct, expected behavior for every nib.
++  {
++    BOOL showedMain = NO;
++    NSEnumerator *cen = [_connections objectEnumerator];
++    id conn;
++    while ((conn = [cen nextObject]) != nil)
++      {
++	if ([[conn label] isEqualToString: @"window"])
++	  {
++	    id src = [conn source];
++	    id dstWin = [conn destination];
++	    if ([src respondsToSelector: @selector(realObject)])
++	      src = [src realObject];
++	    if ([dstWin respondsToSelector: @selector(realObject)])
++	      dstWin = [dstWin realObject];
++	    if ([dstWin isKindOfClass: [NSWindow class]])
++	      {
++		[dstWin orderFront: self];
++		showedMain = YES;
++		break;
++	      }
++	  }
++      }
++    if (showedMain == NO)
++      {
++	// Fallback to the original behavior for nibs without a 'window' outlet.
++	en = [_visibleWindows objectEnumerator];
++	while ((obj = [en nextObject]) != nil)
++	  {
++	    id w = [obj realObject];
++	    [w orderFront: self];
++	  }
++      }
++  }
+ 
+   // add the menu...
+   menu = [self objectForName: @"MainMenu"];

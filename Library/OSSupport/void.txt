@@ -5,7 +5,6 @@ tiff-devel
 libpng-devel
 lcms2-devel
 libicns-devel
-ImageMagick
 libxml2-devel
 libxslt-devel
 gnutls-devel
@@ -31,9 +30,11 @@ xcb-util-cursor-devel
 xcb-util-wm-devel
 xrandr
 libXrandr-devel
+libXcursor-devel
 wget
 cups-devel
 libXcomposite-devel
+libXtst-devel
 autoconf
 automake
 libtool
@@ -46,3 +47,4 @@ libarchive-devel
 squashfs-tools-ng
 squashfs-tools-ng-devel
 glu-devel 
+alsa-lib-devel

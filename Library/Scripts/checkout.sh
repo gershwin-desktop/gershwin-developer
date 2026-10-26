@@ -44,73 +44,138 @@ if [ -z "$BRANCH" ]; then
   done
 fi
 
+# A local run from a gershwin-developer checkout on dev builds dev too: the
+# build system's own branch is the channel the user chose, and building the
+# default branches from a dev checkout installed an old Eau main next to a dev
+# WindowManager (title bars with both button sets). A detached checkout counts
+# as dev when its commit is on origin/dev but not yet on origin/main, which is
+# what a worktree made from a dev commit looks like. An explicit BRANCH= wins.
+if [ -z "$BRANCH" ]; then
+  _self_dir="$(cd "$(dirname "$0")/../.." && pwd)"
+  _self_branch=$(git -C "$_self_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  if [ "$_self_branch" = "dev" ]; then
+    BRANCH=dev
+  elif [ "$_self_branch" = "HEAD" ] \
+       && git -C "$_self_dir" merge-base --is-ancestor HEAD origin/dev 2>/dev/null \
+       && ! git -C "$_self_dir" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+    BRANCH=dev
+  fi
+  if [ "$BRANCH" = "dev" ]; then
+    echo "gershwin-developer is on dev; preferring the dev branch for Gershwin repos."
+  fi
+fi
+
+# SHALLOW=1 clones every repository with its newest commit only and without
+# the other branches. The live images set it: the history of ~19 repositories
+# is several hundred MB that nobody on a live system reads, and git packs do
+# not compress any further in the image. Software Update and this script keep
+# working on such a tree; they fetch a branch or a pinned commit they do not
+# have yet with --depth 1 instead of pulling in the whole history. Unset (the
+# default) clones the full history, as a development machine wants it.
+SHALLOW="${SHALLOW:-0}"
+
 ON_BRANCH=""     # repos actually placed on $BRANCH (for the end-of-run summary)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPOS_DIR="$SCRIPT_DIR/../Sources"
 
-REPOS="
-https://github.com/apple/swift-corelibs-libdispatch.git
-https://github.com/gnustep/libobjc2.git
-https://github.com/gnustep/tools-make.git
-https://github.com/gnustep/libs-base.git
-https://github.com/gnustep/libs-gui.git
-https://github.com/gnustep/libs-back.git
-https://github.com/gnustep/libs-av.git
-https://github.com/gnustep/libs-steptalk.git
-https://github.com/gershwin-desktop/gershwin-system.git
-https://github.com/gershwin-desktop/gershwin-workspace.git
-https://github.com/gershwin-desktop/gershwin-systempreferences.git
-https://github.com/gershwin-desktop/gershwin-eau-theme.git
-https://github.com/gershwin-desktop/gershwin-terminal.git
-https://github.com/gershwin-desktop/gershwin-textedit.git
-https://github.com/gershwin-desktop/gershwin-windowmanager.git
-https://github.com/gershwin-desktop/gershwin-components.git
-https://github.com/gershwin-desktop/gershwin-assets.git
-https://github.com/gershwin-desktop/docs.git
-https://github.com/gershwin-desktop/gershwin-desktop.wiki.git
-"
+# The repository list, clone order, upstream pins and per-repo restart flag
+# all live in Library/Repositories.csv - the same file Software Update reads
+# - so there is exactly one place to change them. CSV rather than a plist so
+# plain awk/cut can read it before GNUstep exists on a fresh machine; no
+# field here (name, URL, sha) ever contains a comma, so no quoting is needed.
+REPOS_CSV="$SCRIPT_DIR/../Repositories.csv"
 
-# Pinned commits, as "<repo name> <commit>". These are upstream libraries; we pin
-# them so we don't develop against a moving target and so the patches under
-# Library/Patches/ keep applying. Every entry here must be a non-Gershwin repo —
-# Gershwin's own repositories track their branch and are deliberately absent.
-# Refreshed 2026-07-26. Every patch under Library/Patches/ was dry-run against
-# these commits. libs-gui is held a day behind its HEAD: dropdown-tracking.patch
-# does not apply to the 2026-07-26 commits.
-# libs-opal was added later, at its 2026-08-17 HEAD, which is the tree
-# openbsd-swap64-name-collision.patch was written and dry-run against.
-# libs-corebase was pinned at its 2026-09-06 HEAD, the tree CI has been
-# building; it carries no patch, so the pin is only to stop it moving.
-# libs-quartzcore is deliberately still unpinned.
-PINS="
-libobjc2                    c9f4002
-libs-back                   bbcc3de
-libs-base                   5bda522
-libs-gui                    8f804fd
-swift-corelibs-libdispatch  95f592a
-tools-make                  4e31a03
-libs-av                     26566e2
-libs-steptalk               2b57b46
-libs-opal                   98f8e4f
-libs-corebase               e89ff1f
-"
+# The platform this checkout is for, in the words of the Platforms column of
+# Repositories.csv: "windows" inside MSYS2/MinGW, "unix" everywhere else.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) HOST_PLATFORM=windows ;;
+    *)                    HOST_PLATFORM=unix ;;
+esac
 
-# Echo the pinned commit for repo $1, or nothing if the repo is not pinned.
+# Names of every repository for this platform, in the order Repositories.csv
+# lists them. A repository with a Platforms column that does not name this
+# platform (the Windows theme, outside Windows) is not cloned, and Software
+# Update does not list it either.
+list_repo_names() {
+    awk -F, -v host="$HOST_PLATFORM" '
+        /^#/ { next }
+        $1 == "" || $1 == "Name" { next }
+        $5 != "" {
+            n = split($5, p, " "); ok = 0
+            for (i = 1; i <= n; i++) if (p[i] == host) ok = 1
+            if (!ok) next
+        }
+        { print $1 }' "$REPOS_CSV"
+}
+
+# The clone URL for repo $1.
+url_for() {
+    awk -F, -v name="$1" '/^#/ { next } $1 == name { print $2; exit }' "$REPOS_CSV"
+}
+
+# The pinned commit for repo $1, or nothing if it is not pinned.
 pin_for() {
-    echo "$PINS" | while read -r _name _commit _rest; do
-        if [ "$_name" = "$1" ]; then
-            echo "$_commit"
-            break
-        fi
-    done
+    awk -F, -v name="$1" '/^#/ { next } $1 == name { print $3; exit }' "$REPOS_CSV"
+}
+
+# Whether the repository in the current directory is a shallow clone. Asked
+# of each repository rather than taken from $SHALLOW, so that updating a tree
+# a live image left behind never deepens it by accident.
+is_shallow() {
+    [ "$(git rev-parse --is-shallow-repository)" = true ]
+}
+
+# Makes origin/$1 exist in the current repository. A shallow clone, like any
+# --single-branch clone, fetches only the branch it was cloned from, so
+# checking out another one (BRANCH=dev on a tree cloned from main, or back)
+# needs that branch added to the fetch refspec and fetched first.
+ensure_branch() {
+    git rev-parse -q --verify "refs/remotes/origin/$1" >/dev/null && return 0
+    echo "  fetching branch '$1', which this clone does not track yet"
+    git remote set-branches --add origin "$1"
+    if is_shallow; then
+        git fetch --depth 1 origin "$1"
+    else
+        git fetch origin "$1"
+    fi
+}
+
+# Makes commit $1 present in the current repository. A shallow clone holds
+# the branch tip only, and a pin is usually older than that; git can fetch a
+# single commit by its full id but not by an abbreviation, so an abbreviated
+# pin that is missing is an error in Repositories.csv rather than something
+# to work around here.
+ensure_commit() {
+    git cat-file -e "$1^{commit}" 2>/dev/null && return 0
+    case "$1" in
+        *[!0-9a-f]*) ;;
+        *) if [ "${#1}" -eq 40 ]; then
+               if is_shallow; then
+                   git fetch --depth 1 origin "$1"
+               else
+                   git fetch origin "$1"
+               fi
+               return 0
+           fi ;;
+    esac
+    echo "error: pinned commit '$1' is not in $(basename "$PWD") and is not a full 40-character sha that could be fetched" >&2
+    exit 1
 }
 
 mkdir -p "$REPOS_DIR"
 cd "$REPOS_DIR"
 
-for REPO in $REPOS; do
-    NAME=$(basename "$REPO" .git)
+for NAME in $(list_repo_names); do
+    REPO=$(url_for "$NAME")
+
+    # Repositories.csv names gershwin-developer so that Software Update lists
+    # it, but this checkout is gershwin-developer (self-update.sh refreshes
+    # it). A second clone in Library/Sources was updated by Software Update
+    # while the scripts and package lists kept being read from here.
+    if [ "$NAME" = "gershwin-developer" ]; then
+        continue
+    fi
 
     case " $SKIP_REPOS " in
         *" $NAME "*)
@@ -144,9 +209,16 @@ for REPO in $REPOS; do
         echo "Updating $NAME..."
         (
             cd "$NAME"
-            git fetch --all --tags
+            # --tags would fetch every tag together with all the history
+            # behind it, which turns a shallow clone back into a full one.
+            if is_shallow; then
+                git fetch --all
+            else
+                git fetch --all --tags
+            fi
             if [ -n "$USE_BRANCH" ]; then
                 echo "  $NAME: checking out branch '$USE_BRANCH'"
+                ensure_branch "$USE_BRANCH"
                 git checkout "$USE_BRANCH"
             fi
             if [ -z "$PIN" ]; then
@@ -163,6 +235,7 @@ for REPO in $REPOS; do
                     DEFAULT_BRANCH="${DEFAULT_BRANCH#origin/}"
                     if [ -n "$DEFAULT_BRANCH" ]; then
                         echo "  $NAME: detached — returning to '$DEFAULT_BRANCH'"
+                        ensure_branch "$DEFAULT_BRANCH"
                         git checkout "$DEFAULT_BRANCH"
                     fi
                 fi
@@ -174,7 +247,11 @@ for REPO in $REPOS; do
         if [ -n "$USE_BRANCH" ]; then
             echo "  $NAME: cloning branch '$USE_BRANCH'"
         fi
-        git clone ${USE_BRANCH:+--branch "$USE_BRANCH"} "$REPO"
+        if [ "$SHALLOW" -eq 1 ]; then
+            git clone --depth 1 ${USE_BRANCH:+--branch "$USE_BRANCH"} "$REPO"
+        else
+            git clone ${USE_BRANCH:+--branch "$USE_BRANCH"} "$REPO"
+        fi
     fi
 done
 
@@ -192,23 +269,23 @@ fi
 if [ "$PINNED" -eq 1 ]; then
     echo "Checking out pinned commits..."
 
-    # Fed by redirection rather than a pipe so `set -e` still applies to the body.
-    while read -r NAME COMMIT _rest; do
-        [ -n "$NAME" ] || continue
+    for NAME in $(list_repo_names); do
         [ -d "$NAME/.git" ] || continue
+        COMMIT=$(pin_for "$NAME")
+        [ -n "$COMMIT" ] || continue
         echo "  $NAME -> $COMMIT"
         (
             cd "$NAME"
+            ensure_commit "$COMMIT"
             git checkout "$COMMIT"
         )
-    done <<EOF
-$PINS
-EOF
+    done
 fi
 
-# Gershwin's own repositories are intentionally NOT in $PINS: pinning them would
-# mean the build no longer picks up our own work. These commits are kept only as
-# a record of a known-good set. Do not move them into $PINS.
+# Gershwin's own repositories are intentionally not pinned in Repositories.plist:
+# pinning them would mean the build no longer picks up our own work. These
+# commits are kept only as a record of a known-good set. Do not add a Pin key
+# for them.
 # gershwin-windowmanager       1f3cc1c
 # gershwin-components          3395d99
 # gershwin-eau-theme           4babcb0
@@ -227,8 +304,12 @@ sed_inplace_ere() {
     _tmp="$(mktemp)"
     sed -E "$_pat" "$_file" > "$_tmp" && mv "$_tmp" "$_file"
 }
-sed_inplace_ere \
-    's/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
-    swift-corelibs-libdispatch/CMakeLists.txt
+# libdispatch is not cloned at all when it is in SKIP_REPOS (Windows builds
+# without it), so only touch the file when it is there.
+if [ -f swift-corelibs-libdispatch/CMakeLists.txt ]; then
+    sed_inplace_ere \
+        's/cmake_minimum_required\(VERSION 3\.[0-9]+(\.\.\.3\.[0-9]+)?\)/cmake_minimum_required(VERSION 3.20...3.99)/g' \
+        swift-corelibs-libdispatch/CMakeLists.txt
+fi
 
 echo "Done."

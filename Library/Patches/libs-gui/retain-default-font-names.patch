@@ -1,0 +1,45 @@
+From 8a092cfa7edf6aef0929a81f0c6590e8d230e21f Mon Sep 17 00:00:00 2001
+From: Todd White <todd.white@thalion.global>
+Date: Sun, 26 Jul 2026 10:11:05 -0400
+Subject: [PATCH] Fix: retain the default font names for the font roles
+
+init_font_roles stored the system, bold-system and fixed-pitch default font
+names returned by the backend font enumerator without retaining them. These
+are kept for the lifetime of the process and read again later (for example in
+keyForFont), so they must be owned.
+
+It worked only because the existing backends return string constants. A
+backend that returns an ordinary autoreleased name leaves the three
+font_roles[].defaultFont entries dangling once the current autorelease pool
+drains, and the next font lookup dereferences freed memory.
+
+Retain the names with ASSIGN so the font roles own them.
+---
+ Source/NSFont.m | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/Source/NSFont.m b/Source/NSFont.m
+index cac7b0537..2cbb83565 100644
+--- a/Source/NSFont.m
++++ b/Source/NSFont.m
+@@ -289,9 +289,14 @@ static void init_font_roles(void)
+ {
+   GSFontEnumerator *e = [GSFontEnumerator sharedEnumerator];
+ 
+-  font_roles[RoleSystemFont].defaultFont = [e defaultSystemFontName];
+-  font_roles[RoleBoldSystemFont].defaultFont = [e defaultBoldSystemFontName];
+-  font_roles[RoleUserFixedPitchFont].defaultFont = [e defaultFixedPitchFontName];
++  /* Retain the returned names: they are kept for the lifetime of the process
++     and used again later (e.g. in keyForFont).  A backend that returns an
++     autoreleased name rather than a string constant would otherwise leave
++     these as dangling pointers once the current autorelease pool drains. */
++  ASSIGN(font_roles[RoleSystemFont].defaultFont, [e defaultSystemFontName]);
++  ASSIGN(font_roles[RoleBoldSystemFont].defaultFont, [e defaultBoldSystemFontName]);
++  ASSIGN(font_roles[RoleUserFixedPitchFont].defaultFont,
++         [e defaultFixedPitchFontName]);
+ }
+ 
+ 
+-- 
+2.47.3
+
