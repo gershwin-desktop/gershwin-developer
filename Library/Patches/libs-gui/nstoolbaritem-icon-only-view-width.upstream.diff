@@ -17,24 +17,26 @@ index 76f621b9e..a91c3616f 100644
  
  	* Source/GSToolTips.m (-_timedOut:): Multiply the measured text size
 diff --git a/Source/NSToolbarItem.m b/Source/NSToolbarItem.m
-index 30d738e08..19cc6966d 100644
+index 30d738e08..4a31fa0db 100644
 --- a/Source/NSToolbarItem.m
 +++ b/Source/NSToolbarItem.m
-@@ -702,6 +702,8 @@ NSString *GSMovableToolbarItemPboardType = @"GSMovableToolbarItemPboardType";
+@@ -702,6 +702,10 @@ NSString *GSMovableToolbarItemPboardType = @"GSMovableToolbarItemPboardType";
        case NSToolbarDisplayModeIconOnly:
          _showLabel = NO;
          layoutedHeight -= labelSize.height + InsetItemTextY;
 +        if ([view superview] != nil)
-+          layoutedWidth = [view frame].size.width + 2 * InsetItemViewX;
++          {
++            layoutedWidth = [view frame].size.width + 2 * InsetItemViewX;
++          }
          break;
        case NSToolbarDisplayModeLabelOnly:
          _enabled = NO;
 diff --git a/Tests/gui/NSToolbarItem/iconOnlyViewWidth.m b/Tests/gui/NSToolbarItem/iconOnlyViewWidth.m
 new file mode 100644
-index 000000000..ce9c1332a
+index 000000000..7b77816b7
 --- /dev/null
 +++ b/Tests/gui/NSToolbarItem/iconOnlyViewWidth.m
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,124 @@
 +#include "Testing.h"
 +
 +#include <Foundation/NSAutoreleasePool.h>
@@ -103,7 +105,9 @@ index 000000000..ce9c1332a
 +  NS_HANDLER
 +    {
 +      if ([[localException name] isEqualToString: NSInternalInconsistencyException])
-+        SKIP("It looks like GNUstep backend is not yet installed")
++        {
++          SKIP("It looks like GNUstep backend is not yet installed")
++        }
 +    }
 +  NS_ENDHANDLER
 +
@@ -146,7 +150,9 @@ index 000000000..ce9c1332a
 +    {
 +      if ([[localException name] isEqualToString: NSInternalInconsistencyException]
 +        || [[localException name] isEqualToString: @"NSWindowServerCommunicationException"])
-+        SKIP("No display available")
++        {
++          SKIP("No display available")
++        }
 +      [localException raise];
 +    }
 +  NS_ENDHANDLER

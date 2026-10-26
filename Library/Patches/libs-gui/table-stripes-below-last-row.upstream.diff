@@ -21,10 +21,10 @@ index 62244fdc8..fe5c225cf 100644
  
  	* Source/GSToolbarCustomizationPalette.m
 diff --git a/Source/GSThemeDrawing.m b/Source/GSThemeDrawing.m
-index 08e1764fb..c29a12045 100644
+index 08e1764fb..8d630c0ab 100644
 --- a/Source/GSThemeDrawing.m
 +++ b/Source/GSThemeDrawing.m
-@@ -3229,37 +3229,67 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
+@@ -3229,37 +3229,77 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
    if ([tableView usesAlternatingRowBackgroundColors])
      {
        const CGFloat rowHeight = [tableView rowHeight];
@@ -75,14 +75,22 @@ index 08e1764fb..c29a12045 100644
 +	  startingRow = [tableView rowAtPoint:
 +				     NSMakePoint(NSMinX([tableView bounds]), NSMinY(aRect))];
 +	  if (startingRow < 0)
-+	    startingRow = 0;
++	    {
++	      startingRow = 0;
++	    }
 +	  if (NSMaxY(aRect) < rowsEnd)
-+	    endingRow = [tableView rowAtPoint:
-+				     NSMakePoint(NSMinX([tableView bounds]), NSMaxY(aRect))];
++	    {
++	      endingRow = [tableView rowAtPoint:
++				       NSMakePoint(NSMinX([tableView bounds]), NSMaxY(aRect))];
++	    }
 +	  else
-+	    endingRow = numberOfRows - 1;
++	    {
++	      endingRow = numberOfRows - 1;
++	    }
 +	  if (endingRow < startingRow)
-+	    endingRow = numberOfRows - 1;
++	    {
++	      endingRow = numberOfRows - 1;
++	    }
 +
 +	  for (i = startingRow; i <= endingRow; i++)
 +	    {
@@ -99,7 +107,9 @@ index 08e1764fb..c29a12045 100644
 +	{
 +	  startingRow = 0;
 +	  if (NSMinY(aRect) > rowsEnd)
-+	    startingRow = floor((NSMinY(aRect) - rowsEnd) / rowHeight);
++	    {
++	      startingRow = floor((NSMinY(aRect) - rowsEnd) / rowHeight);
++	    }
 +	  endingRow = ceil((NSMaxY(aRect) - rowsEnd) / rowHeight);
 +
 +	  rowRect = NSMakeRect(NSMinX(aRect), rowsEnd + startingRow * rowHeight,
@@ -116,10 +126,10 @@ index 08e1764fb..c29a12045 100644
  }
 diff --git a/Tests/gui/NSTableView/stripesBelowLastRow.m b/Tests/gui/NSTableView/stripesBelowLastRow.m
 new file mode 100644
-index 000000000..cc2c40e16
+index 000000000..cedc4bbba
 --- /dev/null
 +++ b/Tests/gui/NSTableView/stripesBelowLastRow.m
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,129 @@
 +#import "Testing.h"
 +#import <Foundation/NSAutoreleasePool.h>
 +#import <Foundation/NSArray.h>
@@ -176,7 +186,9 @@ index 000000000..cc2c40e16
 +    [NSApplication sharedApplication];
 +  NS_HANDLER
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
-+      SKIP("It looks like GNUstep backend is not yet installed")
++      {
++        SKIP("It looks like GNUstep backend is not yet installed")
++      }
 +  NS_ENDHANDLER
 +
 +  NS_DURING
@@ -238,7 +250,9 @@ index 000000000..cc2c40e16
 +  NS_HANDLER
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException]
 +      || [[localException name] isEqualToString: @"NSWindowServerCommunicationException"])
-+      SKIP("No display available")
++      {
++        SKIP("No display available")
++      }
 +    [localException raise];
 +  NS_ENDHANDLER
 +
@@ -247,10 +261,10 @@ index 000000000..cc2c40e16
 +}
 diff --git a/Tests/gui/NSTableView/stripesVariableRowHeights.m b/Tests/gui/NSTableView/stripesVariableRowHeights.m
 new file mode 100644
-index 000000000..c56f1e734
+index 000000000..f6a961855
 --- /dev/null
 +++ b/Tests/gui/NSTableView/stripesVariableRowHeights.m
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,228 @@
 +#import "Testing.h"
 +#import <Foundation/NSAutoreleasePool.h>
 +#import <Foundation/NSArray.h>
@@ -339,7 +353,9 @@ index 000000000..c56f1e734
 +  for (i = 0; i < 3; i++)
 +    {
 +      if (y < top + heights[i])
-+	return i;
++	{
++	  return i;
++	}
 +      top += heights[i];
 +    }
 +  return 3 + (NSInteger)floor((y - top) / rowHeight);
@@ -373,8 +389,10 @@ index 000000000..c56f1e734
 +      if (!sameColor([rep colorAtX: 110 y: y], expected))
 +	{
 +	  if (wrong == 0)
-+	    printf("  first wrong pixel row at y = %ld (stripe %ld)\n",
-+	      (long)y, (long)s);
++	    {
++	      printf("  first wrong pixel row at y = %ld (stripe %ld)\n",
++		(long)y, (long)s);
++	    }
 +	  wrong++;
 +	}
 +    }
@@ -401,7 +419,9 @@ index 000000000..c56f1e734
 +    [NSApplication sharedApplication];
 +  NS_HANDLER
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
-+      SKIP("It looks like GNUstep backend is not yet installed")
++      {
++        SKIP("It looks like GNUstep backend is not yet installed")
++      }
 +  NS_ENDHANDLER
 +
 +  NS_DURING
@@ -464,7 +484,9 @@ index 000000000..c56f1e734
 +  NS_HANDLER
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException]
 +      || [[localException name] isEqualToString: @"NSWindowServerCommunicationException"])
-+      SKIP("No display available")
++      {
++        SKIP("No display available")
++      }
 +    [localException raise];
 +  NS_ENDHANDLER
 +

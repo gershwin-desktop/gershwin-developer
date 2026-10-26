@@ -27,10 +27,10 @@ index 413945f5c..42c5828bb 100644
    id _displayPopup;
    id _doneButton;
 diff --git a/Source/GSToolbarCustomizationPalette.m b/Source/GSToolbarCustomizationPalette.m
-index 3674f17b3..67ede2e72 100644
+index 3674f17b3..1f07e1500 100644
 --- a/Source/GSToolbarCustomizationPalette.m
 +++ b/Source/GSToolbarCustomizationPalette.m
-@@ -35,12 +35,162 @@
+@@ -35,12 +35,168 @@
  #import "AppKit/NSWindow.h"
  #import "AppKit/NSToolbar.h"
  #import "AppKit/NSToolbarItem.h"
@@ -67,7 +67,9 @@ index 3674f17b3..67ede2e72 100644
 +      NSToolbarItem *newItem = [item copy];
 +
 +      if ([[newItem paletteLabel] length] > 0)
-+        [newItem setLabel: [newItem paletteLabel]];
++        {
++          [newItem setLabel: [newItem paletteLabel]];
++        }
 +      [newItem setEnabled: YES];
 +      [newItem _layout];
 +      [paletteItems addObject: newItem];
@@ -107,7 +109,9 @@ index 3674f17b3..67ede2e72 100644
 +  ASSIGN(_items, GSPaletteItemsForToolbarItems(items));
 +  e = [[self subviews] objectEnumerator];
 +  while ((sub = [e nextObject]) != nil)
-+    [sub removeFromSuperview];
++    {
++      [sub removeFromSuperview];
++    }
 +
 +  e = [_items objectEnumerator];
 +  while ((item = [e nextObject]) != nil)
@@ -116,7 +120,9 @@ index 3674f17b3..67ede2e72 100644
 +      NSRect frame;
 +
 +      if (backView == nil)
-+        continue;
++        {
++          continue;
++        }
 +      frame = [backView frame];
 +      /* A space only says where the items go apart; drawn at its palette
 +         width it would push the items out of the row. */
@@ -193,7 +199,7 @@ index 3674f17b3..67ede2e72 100644
  /* Customization View */
  @interface GSToolbarCustomizationView : NSView
  {
-@@ -69,21 +219,7 @@
+@@ -69,21 +225,7 @@
     reference a toolbar. */
  - (NSArray *) paletteItemsWithToolbarItems: (NSArray *)items
  {
@@ -216,7 +222,7 @@ index 3674f17b3..67ede2e72 100644
  
    NSDebugLLog(DEBUG_LEVEL, @"Generated palette items %@ from toolbar items %@", 
      paletteItems, items);
-@@ -245,17 +381,35 @@
+@@ -245,17 +387,35 @@
    [_defaultTemplateView setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
    
    {
@@ -263,7 +269,7 @@ index 3674f17b3..67ede2e72 100644
    }
    
    [nc addObserver: self 
-@@ -316,6 +470,30 @@
+@@ -316,6 +476,30 @@
      }
  
    [_customizationView setToolbarItems: _allowedItems];
@@ -295,7 +301,7 @@ index 3674f17b3..67ede2e72 100644
    /* We retain ourself to keep us alive until the palette is closed (this is 
       useful in case nobody retains us). */
 diff --git a/Source/GSToolbarView.m b/Source/GSToolbarView.m
-index 20d9da589..8ce709a69 100644
+index 20d9da589..e83a7e483 100644
 --- a/Source/GSToolbarView.m
 +++ b/Source/GSToolbarView.m
 @@ -51,6 +51,7 @@
@@ -316,7 +322,7 @@ index 20d9da589..8ce709a69 100644
    
    return self;
  }
-@@ -387,13 +389,27 @@ static NSUInteger draggedItemIndex = NSNotFound;
+@@ -387,13 +389,31 @@ static NSUInteger draggedItemIndex = NSNotFound;
    return NSDragOperationGeneric;
  }
  
@@ -331,29 +337,35 @@ index 20d9da589..8ce709a69 100644
  - (NSDragOperation) draggingEntered: (id <NSDraggingInfo>)info
  {
 +  if ([self _isDefaultSetDrag: info])
-+    return [[self toolbar] customizationPaletteIsRunning]
-+      ? NSDragOperationCopy : NSDragOperationNone;
++    {
++      return [[self toolbar] customizationPaletteIsRunning]
++        ? NSDragOperationCopy : NSDragOperationNone;
++    }
    return [self updateItemWhileDragging: info exited: NO];
  }
  
  - (NSDragOperation) draggingUpdated: (id <NSDraggingInfo>)info
  {
 +  if ([self _isDefaultSetDrag: info])
-+    return [[self toolbar] customizationPaletteIsRunning]
-+      ? NSDragOperationCopy : NSDragOperationNone;
++    {
++      return [[self toolbar] customizationPaletteIsRunning]
++        ? NSDragOperationCopy : NSDragOperationNone;
++    }
    return [self updateItemWhileDragging: info exited: NO];
  }
  
-@@ -404,6 +420,8 @@ static NSUInteger draggedItemIndex = NSNotFound;
+@@ -404,6 +424,10 @@ static NSUInteger draggedItemIndex = NSNotFound;
  
  - (void) draggingExited: (id <NSDraggingInfo>)info
  {
 +  if ([self _isDefaultSetDrag: info])
-+    return;
++    {
++      return;
++    }
    [self updateItemWhileDragging: info exited: YES];
  }
  
-@@ -416,6 +434,24 @@ static NSUInteger draggedItemIndex = NSNotFound;
+@@ -416,6 +440,30 @@ static NSUInteger draggedItemIndex = NSNotFound;
  {
    NSToolbar *toolbar = [self toolbar];
  
@@ -363,13 +375,19 @@ index 20d9da589..8ce709a69 100644
 +      NSUInteger i;
 +
 +      if (![toolbar customizationPaletteIsRunning])
-+        return NO;
++        {
++          return NO;
++        }
 +      while ([[toolbar items] count] > 0)
-+        [toolbar _removeItemAtIndex: 0 broadcast: YES];
++        {
++          [toolbar _removeItemAtIndex: 0 broadcast: YES];
++        }
 +      for (i = 0; i < [identifiers count]; i++)
-+        [toolbar _insertItemWithItemIdentifier: [identifiers objectAtIndex: i]
-+                                       atIndex: i
-+                                     broadcast: YES];
++        {
++          [toolbar _insertItemWithItemIdentifier: [identifiers objectAtIndex: i]
++                                         atIndex: i
++                                       broadcast: YES];
++        }
 +      draggedItemIndex = NSNotFound;
 +      [toolbar _saveConfig];
 +      return YES;

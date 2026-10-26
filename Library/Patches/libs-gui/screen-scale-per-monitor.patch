@@ -1,8 +1,8 @@
 diff --git a/Headers/Additions/GNUstepGUI/GSDisplayServer.h b/Headers/Additions/GNUstepGUI/GSDisplayServer.h
-index dd53c486e..c5245b877 100644
+index 07973f087..8e47ab182 100644
 --- a/Headers/Additions/GNUstepGUI/GSDisplayServer.h
 +++ b/Headers/Additions/GNUstepGUI/GSDisplayServer.h
-@@ -157,6 +157,8 @@ APPKIT_EXPORT_CLASS
+@@ -156,6 +156,8 @@ APPKIT_EXPORT_CLASS
  - (void) flushwindowrect: (NSRect)rect : (int)win;
  - (void) styleoffsets: (float*)l : (float*)r : (float*)t : (float*)b 
                       : (unsigned int)style;
@@ -36,10 +36,10 @@ index e69b730e9..6acf841c7 100644
  			 styleMask: (NSUInteger)aStyle;
  - (NSRect) frameRectForContentRect: (NSRect)aRect
 diff --git a/Headers/AppKit/NSWindow.h b/Headers/AppKit/NSWindow.h
-index 9d89ca5d9..8657255ed 100644
+index b9e57e4d0..b980fe2aa 100644
 --- a/Headers/AppKit/NSWindow.h
 +++ b/Headers/AppKit/NSWindow.h
-@@ -339,7 +339,7 @@ PACKAGE_SCOPE
+@@ -338,7 +338,7 @@ PACKAGE_SCOPE
    } _f;
  @protected 
    NSToolbar     *_toolbar;
@@ -48,7 +48,7 @@ index 9d89ca5d9..8657255ed 100644
  }
  
  /*
-@@ -1002,6 +1002,10 @@ APPKIT_EXPORT NSString *NSWindowDidChangeScreenNotification;
+@@ -1001,6 +1001,10 @@ APPKIT_EXPORT NSString *NSWindowDidChangeScreenNotification;
  #if OS_API_VERSION(MAC_OS_X_VERSION_10_4, GS_API_LATEST)
  APPKIT_EXPORT NSString *NSWindowDidChangeScreenProfileNotification;
  #endif
@@ -60,10 +60,10 @@ index 9d89ca5d9..8657255ed 100644
  #if OS_API_VERSION(GS_API_MACOSX, GS_API_LATEST)
  APPKIT_EXPORT NSString *NSWindowDidEndSheetNotification;
 diff --git a/Source/GSDisplayServer.m b/Source/GSDisplayServer.m
-index e8eba3b0c..e247e206b 100644
+index e5f494273..707dd75bd 100644
 --- a/Source/GSDisplayServer.m
 +++ b/Source/GSDisplayServer.m
-@@ -804,6 +804,12 @@ GSCurrentServer(void)
+@@ -794,6 +794,12 @@ GSCurrentServer(void)
    [self subclassResponsibility: _cmd];
  }
  
@@ -391,7 +391,7 @@ index 8e66f3cf6..3b06ecb53 100644
                           styleMask: (NSUInteger)aStyle
  {
 diff --git a/Source/NSScreen.m b/Source/NSScreen.m
-index 5a2c0fec0..93827b0b8 100644
+index 77850e7ba..d486304e9 100644
 --- a/Source/NSScreen.m
 +++ b/Source/NSScreen.m
 @@ -64,6 +64,7 @@
@@ -424,7 +424,7 @@ index 5a2c0fec0..93827b0b8 100644
        RELEASE(screen);
      }
  
-@@ -442,7 +451,17 @@ static NSMutableArray *screenArray = nil;
+@@ -418,7 +427,17 @@ static NSMutableArray *screenArray = nil;
    NSNumber *factor = [[NSUserDefaults standardUserDefaults]
  		       objectForKey: @"GSScaleFactor"];
  
@@ -444,7 +444,7 @@ index 5a2c0fec0..93827b0b8 100644
        return [factor floatValue];
      }
 diff --git a/Source/NSWindow.m b/Source/NSWindow.m
-index a5b80c0c3..fc0154d20 100644
+index 42c6922e8..3228bb99b 100644
 --- a/Source/NSWindow.m
 +++ b/Source/NSWindow.m
 @@ -171,6 +171,15 @@ static GSWindowAnimationDelegate *animationDelegate;
@@ -731,7 +731,7 @@ index a5b80c0c3..fc0154d20 100644
  
    _frame = [NSWindow frameRectForContentRect: contentRect styleMask: aStyle];
    _minimumSize = NSMakeSize(_frame.size.width - contentRect.size.width + 1,
-@@ -1220,6 +1476,7 @@ many times.
+@@ -1219,6 +1475,7 @@ many times.
      {
        ASSIGN(_screen, aScreen);
        _depthLimit = [_screen depth];
@@ -739,7 +739,7 @@ index a5b80c0c3..fc0154d20 100644
      }
    return self;
  }
-@@ -1459,6 +1716,10 @@ titleWithRepresentedFilename(NSString *representedFilename)
+@@ -1458,6 +1715,10 @@ titleWithRepresentedFilename(NSString *representedFilename)
      {
        return 1.0;
      }
@@ -750,7 +750,7 @@ index a5b80c0c3..fc0154d20 100644
    else if (_screen != nil)
       {
         return [_screen userSpaceScaleFactor];
-@@ -1908,6 +2169,10 @@ titleWithRepresentedFilename(NSString *representedFilename)
+@@ -1907,6 +2168,10 @@ titleWithRepresentedFilename(NSString *representedFilename)
           titled windows are constrained. Also, and this is the tricky part,
           don't constrain if we are merely unhiding the window or if it's
           already visible and is just being reordered. */
@@ -761,7 +761,7 @@ index a5b80c0c3..fc0154d20 100644
        if ((_styleMask & NSTitledWindowMask)
            && [NSApp isHidden] == NO
            && _f.visible == NO)
-@@ -2410,6 +2675,12 @@ titleWithRepresentedFilename(NSString *representedFilename)
+@@ -2400,6 +2665,12 @@ titleWithRepresentedFilename(NSString *representedFilename)
     * We will recieve an event to tell us when the resize is done.
     */
    [self _applyFrame: frameRect];
@@ -774,7 +774,7 @@ index a5b80c0c3..fc0154d20 100644
  
    if (flag)
      {
-@@ -2900,6 +3171,9 @@ titleWithRepresentedFilename(NSString *representedFilename)
+@@ -2890,6 +3161,9 @@ titleWithRepresentedFilename(NSString *representedFilename)
       coordinates might be unchanged and `setFrame:display:` has check
       for it. */
    [self _applyFrame: newFrame];
@@ -784,7 +784,7 @@ index a5b80c0c3..fc0154d20 100644
    [self display];
  
    if (_autosaveName != nil)
-@@ -3216,7 +3490,9 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
+@@ -3206,7 +3480,9 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
    if (_f.is_key && _f.cursor_rects_enabled)
      {
        NSPoint loc = [self mouseLocationOutsideOfEventStream];
@@ -795,7 +795,7 @@ index a5b80c0c3..fc0154d20 100644
          {
            NSEvent *e = [NSEvent mouseEventWithType: NSMouseMoved
                                            location: loc
-@@ -4406,6 +4682,9 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
+@@ -4396,6 +4672,9 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
                      [nc postNotificationName: NSWindowDidChangeScreenNotification
                                        object: self];
                    }
@@ -805,7 +805,7 @@ index a5b80c0c3..fc0154d20 100644
                }
                break;
  
-@@ -4435,6 +4714,10 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
+@@ -4425,6 +4704,10 @@ checkCursorRectanglesExited(NSView *theView,  NSEvent *theEvent, NSPoint lastPoi
                  [self _processResizeEvent];
                  [nc postNotificationName: NSWindowDidResizeNotification
                                    object: self];
@@ -954,10 +954,10 @@ index 000000000..b936c10b9
 +#endif
 diff --git a/Tests/gui/NSScreen/scaleFactor.m b/Tests/gui/NSScreen/scaleFactor.m
 new file mode 100644
-index 000000000..b1d93261f
+index 000000000..23c874855
 --- /dev/null
 +++ b/Tests/gui/NSScreen/scaleFactor.m
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,64 @@
 +#import "Testing.h"
 +#import <Foundation/Foundation.h>
 +#import <AppKit/AppKit.h>
@@ -974,7 +974,9 @@ index 000000000..b1d93261f
 +    [NSApplication sharedApplication];
 +  NS_HANDLER
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
-+      SKIP("It looks like GNUstep backend is not yet installed")
++      {
++        SKIP("It looks like GNUstep backend is not yet installed")
++      }
 +  NS_ENDHANDLER
 +
 +  {
@@ -1022,10 +1024,10 @@ index 000000000..b1d93261f
 +}
 diff --git a/Tests/gui/NSWindow/scaleFactor.m b/Tests/gui/NSWindow/scaleFactor.m
 new file mode 100644
-index 000000000..70cb4aeb0
+index 000000000..8c82b0b59
 --- /dev/null
 +++ b/Tests/gui/NSWindow/scaleFactor.m
-@@ -0,0 +1,409 @@
+@@ -0,0 +1,411 @@
 +#import "Testing.h"
 +#import <Foundation/Foundation.h>
 +#import <AppKit/AppKit.h>
@@ -1097,7 +1099,9 @@ index 000000000..70cb4aeb0
 +    [NSApplication sharedApplication];
 +  NS_HANDLER
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
-+      SKIP("It looks like GNUstep backend is not yet installed")
++      {
++        SKIP("It looks like GNUstep backend is not yet installed")
++      }
 +  NS_ENDHANDLER
 +
 +  {

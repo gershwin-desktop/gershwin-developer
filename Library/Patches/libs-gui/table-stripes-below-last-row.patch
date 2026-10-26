@@ -1,8 +1,8 @@
 diff --git a/Source/GSThemeDrawing.m b/Source/GSThemeDrawing.m
-index e5238318c..c09341914 100644
+index e5238318c..6963c4e00 100644
 --- a/Source/GSThemeDrawing.m
 +++ b/Source/GSThemeDrawing.m
-@@ -3219,37 +3219,75 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
+@@ -3219,37 +3219,85 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
    if ([tableView usesAlternatingRowBackgroundColors])
      {
        const CGFloat rowHeight = [tableView rowHeight];
@@ -58,14 +58,22 @@ index e5238318c..c09341914 100644
 +	  startingRow = [tableView rowAtPoint:
 +				     NSMakePoint(NSMinX([tableView bounds]), NSMinY(aRect))];
 +	  if (startingRow < 0)
-+	    startingRow = 0;
++	    {
++	      startingRow = 0;
++	    }
 +	  if (NSMaxY(aRect) < rowsEnd)
-+	    endingRow = [tableView rowAtPoint:
-+				     NSMakePoint(NSMinX([tableView bounds]), NSMaxY(aRect))];
++	    {
++	      endingRow = [tableView rowAtPoint:
++				       NSMakePoint(NSMinX([tableView bounds]), NSMaxY(aRect))];
++	    }
 +	  else
-+	    endingRow = numberOfRows - 1;
++	    {
++	      endingRow = numberOfRows - 1;
++	    }
 +	  if (endingRow < startingRow)
-+	    endingRow = numberOfRows - 1;
++	    {
++	      endingRow = numberOfRows - 1;
++	    }
 +
 +	  for (i = startingRow; i <= endingRow; i++)
 +	    {
@@ -85,7 +93,9 @@ index e5238318c..c09341914 100644
 +	{
 +	  startingRow = 0;
 +	  if (NSMinY(aRect) > rowsEnd)
-+	    startingRow = floor((NSMinY(aRect) - rowsEnd) / rowHeight);
++	    {
++	      startingRow = floor((NSMinY(aRect) - rowsEnd) / rowHeight);
++	    }
 +	  endingRow = ceil((NSMaxY(aRect) - rowsEnd) / rowHeight);
 +
 +	  rowRect = NSMakeRect(NSMinX(aRect), rowsEnd + startingRow * rowHeight,

@@ -79,10 +79,10 @@ index 06588e9f7..6e79cb2f5 100644
    if (_cell.in_editing)
 diff --git a/Tests/gui/NSTextFieldCell/tableTitleRect.m b/Tests/gui/NSTextFieldCell/tableTitleRect.m
 new file mode 100644
-index 000000000..58600c005
+index 000000000..d2b1a5a34
 --- /dev/null
 +++ b/Tests/gui/NSTextFieldCell/tableTitleRect.m
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,143 @@
 +#include "Testing.h"
 +
 +#include <Foundation/NSAutoreleasePool.h>
@@ -131,7 +131,9 @@ index 000000000..58600c005
 +  NS_HANDLER
 +  {
 +    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
-+      SKIP("It looks like GNUstep backend is not yet installed")
++      {
++        SKIP("It looks like GNUstep backend is not yet installed")
++      }
 +  }
 +  NS_ENDHANDLER
 +
