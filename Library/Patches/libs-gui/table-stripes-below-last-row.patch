@@ -1,28 +1,34 @@
 diff --git a/Source/GSThemeDrawing.m b/Source/GSThemeDrawing.m
-index e5238318c..ee912ba90 100644
+index e5238318c..c09341914 100644
 --- a/Source/GSThemeDrawing.m
 +++ b/Source/GSThemeDrawing.m
-@@ -3219,7 +3219,7 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
+@@ -3219,37 +3219,75 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
    if ([tableView usesAlternatingRowBackgroundColors])
      {
        const CGFloat rowHeight = [tableView rowHeight];
 -      NSInteger startingRow = [tableView rowAtPoint: NSMakePoint(0, NSMinY(aRect))];
+-      NSInteger endingRow;
+-      NSInteger i;
+-      
++      const NSInteger numberOfRows = [tableView numberOfRows];
+       NSArray *rowColors = [NSColor controlAlternatingRowBackgroundColors];
+       const NSUInteger rowColorCount = [rowColors count];
+-      
++      CGFloat rowsEnd = 0.0;
 +      NSInteger startingRow;
-       NSInteger endingRow;
-       NSInteger i;
-       
-@@ -3233,16 +3233,18 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
++      NSInteger endingRow;
++      NSInteger i;
+       NSRect rowRect;
+-      
++      NSColor *color;
++
+       if (rowHeight <= 0
+ 	  || rowColorCount == 0
  	  || aRect.size.height <= 0)
  	return;
  
 -      if (startingRow <= 0)
-+      /* Rows are counted from the position, not looked up: below the
-+	 last row -rowAtPoint: returns -1, and starting from row 0 there
-+	 painted the top of the table and left the exposed area plain. */
-+      startingRow = floor(NSMinY(aRect) / rowHeight);
-+      endingRow = ceil(NSMaxY(aRect) / rowHeight);
-+      if (startingRow < 0)
- 	startingRow = 0;
+-	startingRow = 0;
 -      
 -      rowRect = [tableView rectOfRow: startingRow];
 -      rowRect.origin.x = aRect.origin.x;
@@ -31,11 +37,66 @@ index e5238318c..ee912ba90 100644
 -      endingRow = startingRow + ceil(aRect.size.height / rowHeight);
 -      
 -      for (i = startingRow; i <= endingRow; i++)
-+
-+      rowRect = NSMakeRect(NSMinX(aRect), startingRow * rowHeight,
-+			   NSWidth(aRect), rowHeight);
-+
-+      for (i = startingRow; i < endingRow; i++)
++      if (numberOfRows > 0)
  	{
- 	  NSColor *color = [rowColors objectAtIndex: (i % rowColorCount)];
- 	  
+-	  NSColor *color = [rowColors objectAtIndex: (i % rowColorCount)];
+-	  
+-	  [color set];
+-	  NSRectFill(rowRect);
+-	  
+-	  rowRect.origin.y += rowHeight;
++	  rowsEnd = NSMaxY([tableView rectOfRow: numberOfRows - 1]);
++	}
++
++      /* Each row gets its stripe in its own rect, so rows of different
++	 heights (-outlineView:heightOfRowByItem:) keep theirs.
++	 -rowAtPoint: is only asked inside the rows: below the last row it
++	 returns -1, and starting from row 0 there painted the top of the
++	 table and left an exposed area plain. */
++      if (NSMinY(aRect) < rowsEnd)
++	{
++	  startingRow = [tableView rowAtPoint:
++				     NSMakePoint(NSMinX([tableView bounds]), NSMinY(aRect))];
++	  if (startingRow < 0)
++	    startingRow = 0;
++	  if (NSMaxY(aRect) < rowsEnd)
++	    endingRow = [tableView rowAtPoint:
++				     NSMakePoint(NSMinX([tableView bounds]), NSMaxY(aRect))];
++	  else
++	    endingRow = numberOfRows - 1;
++	  if (endingRow < startingRow)
++	    endingRow = numberOfRows - 1;
++
++	  for (i = startingRow; i <= endingRow; i++)
++	    {
++	      rowRect = [tableView rectOfRow: i];
++	      rowRect.origin.x = NSMinX(aRect);
++	      rowRect.size.width = NSWidth(aRect);
++	      color = [rowColors objectAtIndex: (i % rowColorCount)];
++	      [color set];
++	      NSRectFill(rowRect);
++	    }
++	}
++
++      /* Below the last row the stripes continue at the standard height
++	 from the end of the last row, counted from the clip rect so that
++	 redrawing only part of that area paints the same stripes. */
++      if (NSMaxY(aRect) > rowsEnd)
++	{
++	  startingRow = 0;
++	  if (NSMinY(aRect) > rowsEnd)
++	    startingRow = floor((NSMinY(aRect) - rowsEnd) / rowHeight);
++	  endingRow = ceil((NSMaxY(aRect) - rowsEnd) / rowHeight);
++
++	  rowRect = NSMakeRect(NSMinX(aRect), rowsEnd + startingRow * rowHeight,
++			       NSWidth(aRect), rowHeight);
++	  for (i = startingRow; i < endingRow; i++)
++	    {
++	      color = [rowColors objectAtIndex: ((numberOfRows + i) % rowColorCount)];
++	      [color set];
++	      NSRectFill(rowRect);
++	      rowRect.origin.y += rowHeight;
++	    }
+ 	}
+     }
+ }

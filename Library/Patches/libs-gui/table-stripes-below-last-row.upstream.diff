@@ -1,44 +1,56 @@
 diff --git a/ChangeLog b/ChangeLog
-index 76f621b9e..41e8ab085 100644
+index 62244fdc8..fe5c225cf 100644
 --- a/ChangeLog
 +++ b/ChangeLog
-@@ -1,3 +1,14 @@
-+2026-10-24  Simon Peter <probonopd@users.noreply.github.com>
+@@ -1,3 +1,17 @@
++2026-10-26  Simon Peter <probonopd@users.noreply.github.com>
 +
 +	* Source/GSThemeDrawing.m
 +	(-drawTableViewBackgroundInClipRect:inView:withBackgroundColor:):
-+	Count the alternating rows from the position of the clip rect
-+	instead of looking up the row under it.  Below the last row
-+	-rowAtPoint: returns -1, so the stripes were painted from row 0 at
-+	the top of the table and a redrawn area below the last row was
-+	left in the plain background colour.
-+	* Tests/gui/NSTableView/stripesBelowLastRow.m: New test.
++	Paint the alternating colors of the rows into their own rects and
++	continue below the last row with stripes of the standard row
++	height, counted from the end of the last row.  The first stripe was
++	taken from -rowAtPoint:, which returns -1 below the last row, so a
++	redrawn area there was painted from row 0 and left in the plain
++	background color, and the stripes were stepped at -rowHeight, which
++	did not follow rows of different heights.
++	* Tests/gui/NSTableView/stripesBelowLastRow.m,
++	* Tests/gui/NSTableView/stripesVariableRowHeights.m: New tests.
 +
- 2026-09-30  Simon Peter <probonopd@users.noreply.github.com>
+ 2026-10-24  Simon Peter <probonopd@users.noreply.github.com>
  
- 	* Source/GSToolTips.m (-_timedOut:): Multiply the measured text size
+ 	* Source/GSToolbarCustomizationPalette.m
 diff --git a/Source/GSThemeDrawing.m b/Source/GSThemeDrawing.m
-index 08e1764fb..207b729c7 100644
+index 08e1764fb..c29a12045 100644
 --- a/Source/GSThemeDrawing.m
 +++ b/Source/GSThemeDrawing.m
-@@ -3229,7 +3229,7 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
+@@ -3229,37 +3229,67 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
    if ([tableView usesAlternatingRowBackgroundColors])
      {
        const CGFloat rowHeight = [tableView rowHeight];
 -      NSInteger startingRow = [tableView rowAtPoint: NSMakePoint(0, NSMinY(aRect))];
+-      NSInteger endingRow;
+-      NSInteger i;
+-      
++      const NSInteger numberOfRows = [tableView numberOfRows];
+       NSArray *rowColors = [NSColor controlAlternatingRowBackgroundColors];
+       const NSUInteger rowColorCount = [rowColors count];
+-      
++      CGFloat rowsEnd = 0.0;
 +      NSInteger startingRow;
-       NSInteger endingRow;
-       NSInteger i;
-       
-@@ -3243,16 +3243,15 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
++      NSInteger endingRow;
++      NSInteger i;
+       NSRect rowRect;
+-      
++      NSColor *color;
++
+       if (rowHeight <= 0
+ 	  || rowColorCount == 0
  	  || aRect.size.height <= 0)
  	return;
  
 -      if (startingRow <= 0)
-+      startingRow = floor(NSMinY(aRect) / rowHeight);
-+      endingRow = ceil(NSMaxY(aRect) / rowHeight);
-+      if (startingRow < 0)
- 	startingRow = 0;
+-	startingRow = 0;
 -      
 -      rowRect = [tableView rectOfRow: startingRow];
 -      rowRect.origin.x = aRect.origin.x;
@@ -47,14 +59,61 @@ index 08e1764fb..207b729c7 100644
 -      endingRow = startingRow + ceil(aRect.size.height / rowHeight);
 -      
 -      for (i = startingRow; i <= endingRow; i++)
-+
-+      rowRect = NSMakeRect(NSMinX(aRect), startingRow * rowHeight,
-+			   NSWidth(aRect), rowHeight);
-+
-+      for (i = startingRow; i < endingRow; i++)
++      if (numberOfRows > 0)
  	{
- 	  NSColor *color = [rowColors objectAtIndex: (i % rowColorCount)];
- 	  
+-	  NSColor *color = [rowColors objectAtIndex: (i % rowColorCount)];
+-	  
+-	  [color set];
+-	  NSRectFill(rowRect);
+-	  
+-	  rowRect.origin.y += rowHeight;
++	  rowsEnd = NSMaxY([tableView rectOfRow: numberOfRows - 1]);
++	}
++
++      if (NSMinY(aRect) < rowsEnd)
++	{
++	  startingRow = [tableView rowAtPoint:
++				     NSMakePoint(NSMinX([tableView bounds]), NSMinY(aRect))];
++	  if (startingRow < 0)
++	    startingRow = 0;
++	  if (NSMaxY(aRect) < rowsEnd)
++	    endingRow = [tableView rowAtPoint:
++				     NSMakePoint(NSMinX([tableView bounds]), NSMaxY(aRect))];
++	  else
++	    endingRow = numberOfRows - 1;
++	  if (endingRow < startingRow)
++	    endingRow = numberOfRows - 1;
++
++	  for (i = startingRow; i <= endingRow; i++)
++	    {
++	      rowRect = [tableView rectOfRow: i];
++	      rowRect.origin.x = NSMinX(aRect);
++	      rowRect.size.width = NSWidth(aRect);
++	      color = [rowColors objectAtIndex: (i % rowColorCount)];
++	      [color set];
++	      NSRectFill(rowRect);
++	    }
++	}
++
++      if (NSMaxY(aRect) > rowsEnd)
++	{
++	  startingRow = 0;
++	  if (NSMinY(aRect) > rowsEnd)
++	    startingRow = floor((NSMinY(aRect) - rowsEnd) / rowHeight);
++	  endingRow = ceil((NSMaxY(aRect) - rowsEnd) / rowHeight);
++
++	  rowRect = NSMakeRect(NSMinX(aRect), rowsEnd + startingRow * rowHeight,
++			       NSWidth(aRect), rowHeight);
++	  for (i = startingRow; i < endingRow; i++)
++	    {
++	      color = [rowColors objectAtIndex: ((numberOfRows + i) % rowColorCount)];
++	      [color set];
++	      NSRectFill(rowRect);
++	      rowRect.origin.y += rowHeight;
++	    }
+ 	}
+     }
+ }
 diff --git a/Tests/gui/NSTableView/stripesBelowLastRow.m b/Tests/gui/NSTableView/stripesBelowLastRow.m
 new file mode 100644
 index 000000000..cc2c40e16
@@ -184,5 +243,231 @@ index 000000000..cc2c40e16
 +  NS_ENDHANDLER
 +
 +  END_SET("NSTableView stripes below the last row")
++  return 0;
++}
+diff --git a/Tests/gui/NSTableView/stripesVariableRowHeights.m b/Tests/gui/NSTableView/stripesVariableRowHeights.m
+new file mode 100644
+index 000000000..c56f1e734
+--- /dev/null
++++ b/Tests/gui/NSTableView/stripesVariableRowHeights.m
+@@ -0,0 +1,220 @@
++#import "Testing.h"
++#import <Foundation/NSAutoreleasePool.h>
++#import <Foundation/NSArray.h>
++#import <Foundation/NSDictionary.h>
++#import <Foundation/NSGeometry.h>
++#import <Foundation/NSString.h>
++#import <Foundation/NSUserDefaults.h>
++#import <AppKit/NSApplication.h>
++#import <AppKit/NSBitmapImageRep.h>
++#import <AppKit/NSColor.h>
++#import <AppKit/NSGraphics.h>
++#import <AppKit/NSOutlineView.h>
++#import <AppKit/NSScrollView.h>
++#import <AppKit/NSTableColumn.h>
++#import <AppKit/NSWindow.h>
++
++/* Rows of different heights (from -outlineView:heightOfRowByItem:, the
++ * variable row height the table views here support) followed by the
++ * stripes drawn below the last row at the standard row height.
++ */
++
++static const CGFloat heights[3] = { 16.0, 40.0, 28.0 };
++
++@interface SVRHDS : NSObject
++{
++  NSArray *items;
++}
++@end
++
++@implementation SVRHDS
++- (id) init
++{
++  if ((self = [super init]) != nil)
++    {
++      items = [[NSArray alloc] initWithObjects: @"a", @"b", @"c", nil];
++    }
++  return self;
++}
++- (void) dealloc
++{
++  RELEASE(items);
++  [super dealloc];
++}
++- (NSInteger) outlineView: (NSOutlineView *)ov
++   numberOfChildrenOfItem: (id)item
++{
++  return item == nil ? [items count] : 0;
++}
++- (id) outlineView: (NSOutlineView *)ov child: (NSInteger)index ofItem: (id)item
++{
++  return [items objectAtIndex: index];
++}
++- (BOOL) outlineView: (NSOutlineView *)ov isItemExpandable: (id)item
++{
++  return NO;
++}
++- (id) outlineView: (NSOutlineView *)ov
++  objectValueForTableColumn: (NSTableColumn *)col
++	    byItem: (id)item
++{
++  return item;
++}
++- (CGFloat) outlineView: (NSOutlineView *)ov heightOfRowByItem: (id)item
++{
++  return heights[[items indexOfObject: item]];
++}
++@end
++
++static BOOL
++sameColor(NSColor *a, NSColor *b)
++{
++  a = [a colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
++  b = [b colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
++  return fabs([a redComponent] - [b redComponent]) < 0.02
++    && fabs([a greenComponent] - [b greenComponent]) < 0.02
++    && fabs([a blueComponent] - [b blueComponent]) < 0.02;
++}
++
++/* The stripe index at y: the rows first, then standard height stripes. */
++static NSInteger
++stripeAt(CGFloat y, CGFloat rowHeight)
++{
++  CGFloat top = 0.0;
++  NSInteger i;
++
++  for (i = 0; i < 3; i++)
++    {
++      if (y < top + heights[i])
++	return i;
++      top += heights[i];
++    }
++  return 3 + (NSInteger)floor((y - top) / rowHeight);
++}
++
++/* Redraws only r (after covering the table in a color no stripe has)
++ * and returns the number of pixel rows inside r whose color at x is
++ * not the stripe expected there.
++ */
++static NSInteger
++wrongRowsAfterRedrawing(NSOutlineView *ov, NSRect r, NSArray *rowColors)
++{
++  NSBitmapImageRep *rep;
++  NSInteger wrong = 0;
++  NSInteger y;
++
++  [ov lockFocus];
++  [[NSColor redColor] set];
++  NSRectFill([ov bounds]);
++  NSRectClip(r);
++  [ov drawRect: r];
++  rep = AUTORELEASE([[NSBitmapImageRep alloc]
++    initWithFocusedViewRect: [ov bounds]]);
++  [ov unlockFocus];
++
++  for (y = (NSInteger)NSMinY(r); y < (NSInteger)NSMaxY(r); y++)
++    {
++      NSInteger s = stripeAt(y + 0.5, [ov rowHeight]);
++      NSColor *expected = [rowColors objectAtIndex: s % [rowColors count]];
++
++      if (!sameColor([rep colorAtX: 110 y: y], expected))
++	{
++	  if (wrong == 0)
++	    printf("  first wrong pixel row at y = %ld (stripe %ld)\n",
++	      (long)y, (long)s);
++	  wrong++;
++	}
++    }
++  return wrong;
++}
++
++int
++main(int argc, const char **argv)
++{
++  START_SET("NSTableView stripes with variable row heights")
++
++  {
++    NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
++    NSMutableDictionary *args = [NSMutableDictionary dictionaryWithDictionary:
++      [defs volatileDomainForName: NSArgumentDomain]];
++
++    [args setObject: @"GNUstep" forKey: @"GSTheme"];
++    [args setObject: @"1" forKey: @"GSScaleFactor"];
++    [defs removeVolatileDomainForName: NSArgumentDomain];
++    [defs setVolatileDomain: args forName: NSArgumentDomain];
++  }
++
++  NS_DURING
++    [NSApplication sharedApplication];
++  NS_HANDLER
++    if ([[localException name] isEqualToString: NSInternalInconsistencyException])
++      SKIP("It looks like GNUstep backend is not yet installed")
++  NS_ENDHANDLER
++
++  NS_DURING
++    {
++      NSArray *rowColors = [NSColor controlAlternatingRowBackgroundColors];
++      NSScrollView *sv = AUTORELEASE([[NSScrollView alloc]
++        initWithFrame: NSMakeRect(0, 0, 120, 160)]);
++      NSOutlineView *ov = AUTORELEASE([[NSOutlineView alloc]
++        initWithFrame: NSMakeRect(0, 0, 120, 160)]);
++      NSTableColumn *col = AUTORELEASE([[NSTableColumn alloc]
++        initWithIdentifier: @"a"]);
++      SVRHDS *ds = AUTORELEASE([SVRHDS new]);
++      NSWindow *w;
++      CGFloat rowsEnd;
++      CGFloat height;
++      NSRect full;
++      NSRect lower;
++      NSRect middle;
++
++      w = AUTORELEASE([[NSWindow alloc]
++        initWithContentRect: NSMakeRect(0, 0, 120, 160)
++                  styleMask: NSWindowStyleMaskBorderless
++                    backing: NSBackingStoreBuffered
++                      defer: NO]);
++      [col setWidth: 100.0];
++      [ov addTableColumn: col];
++      [ov setOutlineTableColumn: col];
++      [ov setUsesAlternatingRowBackgroundColors: YES];
++      [ov setDrawsGrid: NO];
++      [ov setDataSource: (id)ds];
++      [ov setDelegate: (id)ds];
++      [w setContentView: sv];
++      [sv setDocumentView: ov];
++      [ov reloadData];
++
++      rowsEnd = NSMaxY([ov rectOfRow: 2]);
++      height = NSHeight([ov bounds]);
++      full = [ov bounds];
++      lower = NSMakeRect(0, rowsEnd + 6, NSWidth(full), height - rowsEnd - 6);
++      middle = NSMakeRect(0, 30, NSWidth(full), 70);
++      printf("rows end at %g, standard row height %g, table is %g high\n",
++        rowsEnd, [ov rowHeight], height);
++
++      PASS([ov numberOfRows] == 3
++        && NSHeight([ov rectOfRow: 1]) == 40.0
++        && rowsEnd == 84.0,
++        "the rows have the heights given by the delegate");
++      PASS(height >= rowsEnd + 3 * [ov rowHeight],
++        "the table covers its clip view well below the last row");
++      PASS([rowColors count] == 2
++        && !sameColor([rowColors objectAtIndex: 0], [rowColors objectAtIndex: 1]),
++        "there are two distinct alternating row colors");
++      PASS(wrongRowsAfterRedrawing(ov, full, rowColors) == 0,
++        "a full redraw paints a stripe per row and standard height stripes below");
++      PASS(wrongRowsAfterRedrawing(ov, lower, rowColors) == 0,
++        "redrawing only the area below the last row paints the same stripes");
++      PASS(wrongRowsAfterRedrawing(ov, middle, rowColors) == 0,
++        "redrawing only the middle of the table paints the same stripes");
++    }
++  NS_HANDLER
++    if ([[localException name] isEqualToString: NSInternalInconsistencyException]
++      || [[localException name] isEqualToString: @"NSWindowServerCommunicationException"])
++      SKIP("No display available")
++    [localException raise];
++  NS_ENDHANDLER
++
++  END_SET("NSTableView stripes with variable row heights")
 +  return 0;
 +}
