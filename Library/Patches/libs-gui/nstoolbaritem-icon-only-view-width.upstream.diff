@@ -1,9 +1,9 @@
 diff --git a/ChangeLog b/ChangeLog
-index 76f621b9e..a91c3616f 100644
+index 62244fdc8..3ae045235 100644
 --- a/ChangeLog
 +++ b/ChangeLog
 @@ -1,3 +1,13 @@
-+2026-10-24  Simon Peter <probonopd@users.noreply.github.com>
++2026-10-26  Simon Peter <probonopd@users.noreply.github.com>
 +
 +	* Source/NSToolbarItem.m (-[GSToolbarBackView layout]): In
 +	NSToolbarDisplayModeIconOnly make an item with a view as wide as
@@ -13,9 +13,9 @@ index 76f621b9e..a91c3616f 100644
 +	depending on the length of their hidden labels.
 +	* Tests/gui/NSToolbarItem/iconOnlyViewWidth.m: New test.
 +
- 2026-09-30  Simon Peter <probonopd@users.noreply.github.com>
+ 2026-10-24  Simon Peter <probonopd@users.noreply.github.com>
  
- 	* Source/GSToolTips.m (-_timedOut:): Multiply the measured text size
+ 	* Source/GSToolbarCustomizationPalette.m
 diff --git a/Source/NSToolbarItem.m b/Source/NSToolbarItem.m
 index 30d738e08..4a31fa0db 100644
 --- a/Source/NSToolbarItem.m
