@@ -1,0 +1,17 @@
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+index 80ff8d58..3de61c65 100644
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -4873,6 +4873,12 @@ - (NSArray *)screenList
+             }
+ 
+           monitorsCount = mi;
++          /* An fb-only resize (xrandr --fb, streaming servers) leaves
++           * the CRTC reporting the old mode; with no work area published
++           * the root geometry is the only authority for the screen.  */
++          if (monitorsCount == 1 && workAreas == nil)
++            monitors[0].frame =
++              NSMakeRect(0, 0, xScreenSize.width, xScreenSize.height);
+           if (monitorsCount != 0)
+             {
+               XRRFreeScreenResources(screen_res);
