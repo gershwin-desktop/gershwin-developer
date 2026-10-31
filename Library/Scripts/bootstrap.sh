@@ -153,8 +153,43 @@ case "$OS_ID" in
     done < "$REQUIREMENTS_FILE"
 
     if [ -n "$missing" ]; then
+      # nextbsd.txt lists FreeBSD packages. NextBSD does not configure
+      # FreeBSD's package repository, and its own packages use the ABI
+      # NextBSD:<major>:<arch>, so Gershwin writes its own repository
+      # configuration and installs from it with FreeBSD's ABI. The ABI is
+      # set for these pkg calls only, not in pkg.conf.
+      case "$(uname -p)" in
+        aarch64|arm64) freebsd_arch="aarch64" ;;
+        *) freebsd_arch="$(uname -p)" ;;
+      esac
+      freebsd_abi="FreeBSD:15:${freebsd_arch}"
+
+      # NextBSD does not ship FreeBSD's package signing key
+      # (/usr/share/keys/pkg), so keep a copy of its fingerprint with the
+      # repository configuration.
+      fingerprints="/usr/local/etc/pkg/fingerprints/FreeBSD"
+      mkdir -p "$fingerprints/trusted" /usr/local/etc/pkg/repos
+      cat > "$fingerprints/trusted/pkg.freebsd.org.2013102301" <<EOF
+function: "sha256"
+fingerprint: "b0170035af3acc5f3f3ae1859dc717101b4e6c1d0a794ad554928ca0cbb2f438"
+EOF
+      cat > /usr/local/etc/pkg/repos/FreeBSD.conf <<EOF
+# Written by Gershwin's Library/Scripts/bootstrap.sh. Use it with
+# ABI=${freebsd_abi} OSVERSION=1501000 IGNORE_OSVERSION=yes in the
+# environment of pkg.
+FreeBSD: {
+  url: "pkg+https://pkg.FreeBSD.org/${freebsd_abi}/latest",
+  mirror_type: "srv",
+  signature_type: "fingerprints",
+  fingerprints: "${fingerprints}",
+  enabled: yes
+}
+EOF
+
       echo "Installing:$missing"
-      pkg install -y $missing
+      # OSVERSION only stops pkg from warning that it is guessing one for ABI.
+      env ABI="$freebsd_abi" OSVERSION=1501000 IGNORE_OSVERSION=yes \
+        pkg install -y -r FreeBSD $missing
     else
       echo "All required packages are already installed."
     fi
