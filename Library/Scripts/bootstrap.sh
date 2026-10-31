@@ -173,16 +173,19 @@ case "$OS_ID" in
 function: "sha256"
 fingerprint: "b0170035af3acc5f3f3ae1859dc717101b4e6c1d0a794ad554928ca0cbb2f438"
 EOF
+      # The repository is disabled: with NextBSD's own ABI, pkg rejects its
+      # packages and a plain `pkg update` or `pkg upgrade` would fail. It is
+      # used only when named with -r.
       cat > /usr/local/etc/pkg/repos/FreeBSD.conf <<EOF
-# Written by Gershwin's Library/Scripts/bootstrap.sh. Use it with
-# ABI=${freebsd_abi} OSVERSION=1501000 IGNORE_OSVERSION=yes in the
-# environment of pkg.
+# Written by Gershwin's Library/Scripts/bootstrap.sh. Use it as
+#   env ABI=${freebsd_abi} OSVERSION=1501000 IGNORE_OSVERSION=yes \\
+#     pkg install -r FreeBSD ...
 FreeBSD: {
   url: "pkg+https://pkg.FreeBSD.org/${freebsd_abi}/latest",
   mirror_type: "srv",
   signature_type: "fingerprints",
   fingerprints: "${fingerprints}",
-  enabled: yes
+  enabled: no
 }
 EOF
 
