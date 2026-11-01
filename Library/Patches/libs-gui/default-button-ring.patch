@@ -1,0 +1,379 @@
+diff --git a/Headers/Additions/GNUstepGUI/GSTheme.h b/Headers/Additions/GNUstepGUI/GSTheme.h
+index e7648f4..4a3afbb 100644
+--- a/Headers/Additions/GNUstepGUI/GSTheme.h
++++ b/Headers/Additions/GNUstepGUI/GSTheme.h
+@@ -811,6 +811,27 @@ APPKIT_EXPORT_CLASS
+ - (void) setKeyEquivalent: (NSString *)key 
+             forButtonCell: (NSButtonCell *)cell;
+ 
++/**
++ * How far outside its frame, in the superview's coordinates, the theme marks
++ * the window's default button.  With the default of 0 nothing in the view
++ * system does anything for the ring.  A theme whose ring depends on more
++ * than the states libs-gui redraws it for (the default cell, the button's
++ * geometry, whether it is hidden or enabled, the window's key state) has
++ * to invalidate the ring area itself.
++ */
++- (CGFloat) defaultButtonRingOutset;
++
++/**
++ * Draws the mark around the default button.  Called after view, the button's
++ * superview, has drawn its subviews, with view focused and clipped to the
++ * part that needs it, so that the mark can lie outside the button's frame
++ * and over its siblings.  Never called while -defaultButtonRingOutset is 0
++ * or for a hidden button; the theme decides what a disabled button or an
++ * inactive window shows.  The default draws nothing.
++ */
++- (void) drawDefaultButtonRingForCell: (NSButtonCell *)cell
++                               inView: (NSView *)view;
++
+ /**
+  * Draws a button frame and background (not its content) for the specified
+  * cell and view.
+diff --git a/Source/GSThemeDrawing.m b/Source/GSThemeDrawing.m
+index e523831..79a8ad6 100644
+--- a/Source/GSThemeDrawing.m
++++ b/Source/GSThemeDrawing.m
+@@ -99,6 +99,16 @@
+ @end
+ 
+ @implementation	GSTheme (Drawing)
++- (CGFloat) defaultButtonRingOutset
++{
++  return 0.0;
++}
++
++- (void) drawDefaultButtonRingForCell: (NSButtonCell *)cell
++                               inView: (NSView *)view
++{
++}
++
+ - (void) setKeyEquivalent: (NSString *)key 
+             forButtonCell: (NSButtonCell *)cell
+ {
+diff --git a/Source/NSAlert.m b/Source/NSAlert.m
+index 9c339ee..39fd6c8 100644
+--- a/Source/NSAlert.m
++++ b/Source/NSAlert.m
+@@ -875,10 +875,12 @@ setKeyEquivalent(NSButton *button)
+   if (useControl(defButton))
+     {
+       [self makeFirstResponder: defButton];
++      [self setDefaultButtonCell: [defButton cell]];
+     }
+   else
+     {
+       [self makeFirstResponder: self];
++      [self setDefaultButtonCell: nil];
+     }
+   if (useControl(altButton))
+     {
+@@ -956,10 +958,12 @@ setKeyEquivalent(NSButton *button)
+   if (useControl(defButton))
+     {
+       [self makeFirstResponder: defButton];
++      [self setDefaultButtonCell: [defButton cell]];
+     }
+   else
+     {
+       [self makeFirstResponder: self];
++      [self setDefaultButtonCell: nil];
+     }
+ 
+   /* a *working* nextKeyView chain:
+diff --git a/Source/NSButton.m b/Source/NSButton.m
+index 1b1074e..664024f 100644
+--- a/Source/NSButton.m
++++ b/Source/NSButton.m
+@@ -37,7 +37,9 @@
+ #import "AppKit/NSEvent.h"
+ #import "AppKit/NSWindow.h"
+ 
++#import "GNUstepGUI/GSTheme.h"
+ #import "GSFastEnumeration.h"
++#import "NSViewPrivate.h"
+ 
+ //
+ // class variables
+@@ -628,6 +630,61 @@ static id buttonCellClass = nil;
+   return [_cell sound];
+ }
+ 
++/* _frameExtend, not a conversion from the bounds: during a frame change the
++   coordinate matrices are stale. */
++- (NSRect) _defaultButtonRingRect
++{
++  CGFloat outset;
++
++  if (_super_view == nil || [_window defaultButtonCell] != _cell)
++    {
++      return NSZeroRect;
++    }
++  outset = [[GSTheme theme] defaultButtonRingOutset];
++  if (outset <= 0.0)
++    {
++      return NSZeroRect;
++    }
++  return NSInsetRect([self _frameExtend], -outset, -outset);
++}
++
++- (void) _setDefaultButtonRingNeedsDisplay
++{
++  NSRect ringRect = [self _defaultButtonRingRect];
++
++  if (NSIsEmptyRect(ringRect) == NO)
++    {
++      [_super_view setNeedsDisplayInRect: ringRect];
++    }
++}
++
++/* Every frame change comes through here, including the ones that do not
++   end up in -setFrame: of this class. */
++- (void) _setFrameAndClearAutoresizingError: (NSRect)frameRect
++{
++  [self _setDefaultButtonRingNeedsDisplay];
++  [super _setFrameAndClearAutoresizingError: frameRect];
++  [self _setDefaultButtonRingNeedsDisplay];
++}
++
++- (void) _viewWillMoveToSuperview: (NSView *)newSuper
++{
++  [super _viewWillMoveToSuperview: newSuper];
++  [self _setDefaultButtonRingNeedsDisplay];
++}
++
++- (void) setHidden: (BOOL)flag
++{
++  [super setHidden: flag];
++  [self _setDefaultButtonRingNeedsDisplay];
++}
++
++- (void) setEnabled: (BOOL)flag
++{
++  [super setEnabled: flag];
++  [self _setDefaultButtonRingNeedsDisplay];
++}
++
+ // Implement 10.7+ radio button behavior
+ - (void) _flipState: (NSButton *)b
+ {
+diff --git a/Source/NSControl.m b/Source/NSControl.m
+index f05f6e3..8fd1952 100644
+--- a/Source/NSControl.m
++++ b/Source/NSControl.m
+@@ -123,6 +123,12 @@ static NSNotificationCenter *nc;
+ - (void) dealloc
+ {
+   [GSKeyValueBinding unbindAllForObject: self];
++  /* A cell can outlive its control: a window keeps its default button cell.
++     Drawing asks that cell for its control view. */
++  if ([_cell controlView] == self)
++    {
++      [_cell setControlView: nil];
++    }
+   RELEASE(_cell);
+   [super dealloc];
+ }
+diff --git a/Source/NSView.m b/Source/NSView.m
+index 38a2105..cab54fc 100644
+--- a/Source/NSView.m
++++ b/Source/NSView.m
+@@ -86,6 +86,7 @@
+ #import "GSAutoLayoutAnchorPrivate.h"
+ #import "NSAutoresizingMaskLayoutConstraint.h"
+ #import "NSViewPrivate.h"
++#import "GNUstepGUI/GSTheme.h"
+ #import "NSWindowPrivate.h"
+ 
+ /*
+@@ -151,6 +152,12 @@ static SEL	invalidateSel;
+ static void	(*preImp)(NSAffineTransform*, SEL, NSAffineTransform*);
+ static void	(*invalidateImp)(NSView*, SEL);
+ 
++/* Nesting of -displayRectIgnoringOpacity:inContext:.  A view redrawn on its
++   own overwrites the default button ring where it overlaps it, so the
++   outermost display repaints the ring; nested ones must not, or the ring
++   would be composited twice wherever it is not opaque. */
++static unsigned	displayDepth = 0;
++
+ /*
+  *	Stuff to maintain a map table so we know what views are
+  *	registered for drag and drop - we don't store the info in
+@@ -1013,6 +1020,9 @@ GSSetDragTypes(NSView* obj, NSArray *types)
+ 	  break;
+ 	}
+     }
++  /* Must be before _super_view goes; -removeFromSuperview marks the frame
++     only, and -removeSubview: is the one path every removal takes. */
++  [aView _setDefaultButtonRingNeedsDisplay];
+   [self willRemoveSubview: aView];
+   aView->_super_view = nil;
+   [aView _viewWillMoveToWindow: nil];
+@@ -2631,6 +2641,7 @@ static void autoresize(CGFloat oldContainerSize,
+                           inContext: (NSGraphicsContext *)context
+ {
+   NSGraphicsContext *wContext;
++  NSButtonCell *defaultCell;
+   BOOL flush = NO;
+   BOOL subviewNeedsDisplay = NO;
+ 
+@@ -2639,6 +2650,8 @@ static void autoresize(CGFloat oldContainerSize,
+       return;
+     }
+ 
++  displayDepth++;
++
+   wContext = [_window graphicsContext];
+   if (context == nil)
+     {
+@@ -2724,6 +2737,18 @@ static void autoresize(CGFloat oldContainerSize,
+         }
+     }
+ 
++  displayDepth--;
++  /* This runs for every view that draws, so nothing more than the one
++     test happens for a window without a default button. */
++  defaultCell = [_window defaultButtonCell];
++  if (defaultCell != nil && NSIsEmptyRect(aRect) == NO)
++    {
++      [self _drawDefaultButtonRing: defaultCell
++                            inRect: aRect
++                           context: context
++                             flush: flush];
++    }
++
+   if (context == wContext)
+     {
+       if (subviewNeedsDisplay)
+@@ -2741,6 +2766,48 @@ static void autoresize(CGFloat oldContainerSize,
+     }
+ }
+ 
++- (void) _setDefaultButtonRingNeedsDisplay
++{
++}
++
++- (void) _drawDefaultButtonRing: (NSButtonCell *)cell
++                         inRect: (NSRect)aRect
++                        context: (NSGraphicsContext *)context
++                          flush: (BOOL)flush
++{
++  NSView *button = [cell controlView];
++  NSView *ringView = [button superview];
++  NSRect ringRect;
++
++  if (ringView == nil
++    || (ringView != self
++      && (displayDepth > 0 || [self isDescendantOf: ringView] == NO))
++    || [button isKindOfClass: [NSButton class]] == NO || [button isHidden])
++    {
++      return;
++    }
++
++  /* Empty unless the theme has a ring and this is the button's own cell,
++     which also keeps the ring off the cell of a matrix. */
++  ringRect = [(NSButton *)button _defaultButtonRingRect];
++  if (NSIsEmptyRect(ringRect))
++    {
++      return;
++    }
++
++  if (ringView != self)
++    {
++      aRect = [ringView convertRect: aRect fromView: self];
++    }
++  aRect = NSIntersectionRect(aRect, ringRect);
++  if (NSIsEmptyRect(aRect) == NO)
++    {
++      [ringView _lockFocusInContext: context inRect: aRect];
++      [[GSTheme theme] drawDefaultButtonRingForCell: cell inView: ringView];
++      [ringView unlockFocusNeedsFlush: flush];
++    }
++}
++
+ /**
+   This method is invoked to handle drawing inside the view.  The
+   default NSView's implementation does nothing; subclasses might
+diff --git a/Source/NSViewPrivate.h b/Source/NSViewPrivate.h
+index 93045fe..da7cd7f 100644
+--- a/Source/NSViewPrivate.h
++++ b/Source/NSViewPrivate.h
+@@ -27,6 +27,7 @@
+ #ifndef _GNUstep_H_NSViewPrivate
+ #define _GNUstep_H_NSViewPrivate
+ 
++#import "AppKit/NSButton.h"
+ #import "AppKit/NSView.h"
+ #import "GSAutoLayoutEngine.h"
+ 
+@@ -39,6 +40,17 @@
+ - (void) _insertSubview: (NSView *)sv atIndex: (NSUInteger)idx;
+ @end
+ 
++@interface NSView (GSDefaultButtonRing)
++- (NSRect) _frameExtend;
++- (void) _setFrameAndClearAutoresizingError: (NSRect)frameRect;
++- (void) _viewWillMoveToSuperview: (NSView *)newSuper;
++- (void) _setDefaultButtonRingNeedsDisplay;
++@end
++
++@interface NSButton (GSDefaultButtonRing)
++- (NSRect) _defaultButtonRingRect;
++@end
++
+ @interface NSView (NSConstraintBasedLayoutCorePrivateMethods)
+ 
+ - (void) _setNeedsUpdateConstraints: (BOOL)needsUpdateConstraints;
+diff --git a/Source/NSWindow.m b/Source/NSWindow.m
+index 6fdfc6f..8acc2bb 100644
+--- a/Source/NSWindow.m
++++ b/Source/NSWindow.m
+@@ -160,6 +160,10 @@ static GSWindowAnimationDelegate *animationDelegate;
+  * Category for internal methods (for use only within the NSWindow class itself
+  * or with other AppKit classes.
+  */
++@interface NSWindow (GSDefaultButtonRing)
++- (void) _setDefaultButtonRingNeedsDisplay;
++@end
++
+ @interface NSWindow (GNUstepPrivate)
+ 
+ + (void) _addAutodisplayedWindow: (NSWindow *)w;
+@@ -1655,6 +1659,7 @@ titleWithRepresentedFilename(NSString *representedFilename)
+       [_wv setInputState: GSTitleBarKey];
+       [GSServerForWindow(self) setinputfocus: _windowNum];
+       [self resetCursorRects];
++      [self _setDefaultButtonRingNeedsDisplay];
+       [nc postNotificationName: NSWindowDidBecomeKeyNotification object: self];
+       NSDebugLLog(@"NSWindow", @"%@ is now key window", [self title]);
+     }
+@@ -2014,6 +2019,7 @@ titleWithRepresentedFilename(NSString *representedFilename)
+           [_wv setInputState: GSTitleBarNormal];
+         }
+       [self discardCursorRects];
++      [self _setDefaultButtonRingNeedsDisplay];
+ 
+       [nc postNotificationName: NSWindowDidResignKeyNotification object: self];
+     }
+@@ -5491,14 +5497,21 @@ current key view.<br />
+   return _defaultButtonCell;
+ }
+ 
++- (void) _setDefaultButtonRingNeedsDisplay
++{
++  [[_defaultButtonCell controlView] _setDefaultButtonRingNeedsDisplay];
++}
++
+ - (void) setDefaultButtonCell: (NSButtonCell *)aCell
+ {
++  [self _setDefaultButtonRingNeedsDisplay];
+   ASSIGN(_defaultButtonCell, aCell);
+   _f.default_button_cell_key_disabled = NO;
+ 
+   [aCell setKeyEquivalent: @"\r"];
+   [aCell setKeyEquivalentModifierMask: 0];
+   [[GSTheme theme] didSetDefaultButtonCell: aCell];
++  [self _setDefaultButtonRingNeedsDisplay];
+ }
+ 
+ - (void) disableKeyEquivalentForDefaultButtonCell

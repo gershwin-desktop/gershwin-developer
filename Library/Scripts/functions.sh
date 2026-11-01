@@ -45,6 +45,15 @@ detect_platform() {
                 exit 1
             fi
             ;;
+        MINGW*|MSYS*)
+            # Windows, built inside an MSYS2 UCRT64 shell with the
+            # mingw-w64 clang toolchain (uname says MINGW64 there too).
+            # make is MSYS2's GNU make (never
+            # mingw32-make: gnustep-make needs POSIX path handling).
+            PLATFORM="windows"
+            MAKE_CMD="make"
+            NPROC_CMD="nproc"
+            ;;
         *)
             echo "Unsupported OS: $OS"
             exit 1

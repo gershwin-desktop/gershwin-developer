@@ -1,0 +1,1483 @@
+diff --git a/Headers/Foundation/NSDistributedNotificationCenter.h b/Headers/Foundation/NSDistributedNotificationCenter.h
+index 61ef1630f..8a9dfd8e3 100644
+--- a/Headers/Foundation/NSDistributedNotificationCenter.h
++++ b/Headers/Foundation/NSDistributedNotificationCenter.h
+@@ -87,6 +87,10 @@ GS_EXPORT_CLASS
+   BOOL		_suspended;	/* Is delivery suspended?	*/
+ #endif
+ #if     GS_NONFRAGILE
++#  if	defined(GS_NSDistributedNotificationCenter_IVARS)
++@public
++GS_NSDistributedNotificationCenter_IVARS;
++#  endif
+ #else
+   /* Pointer to private additional data used to avoid breaking ABI
+    * when we don't have the non-fragile ABI available.
+diff --git a/Source/NSDistributedNotificationCenter.m b/Source/NSDistributedNotificationCenter.m
+index 9422a11be..1ca802739 100644
+--- a/Source/NSDistributedNotificationCenter.m
++++ b/Source/NSDistributedNotificationCenter.m
+@@ -24,6 +24,11 @@
+    $Date$ $Revision$
+    */
+ 
++#define	GS_NSDistributedNotificationCenter_IVARS \
++  NSMutableArray	*_observations; \
++  NSTimeInterval	_reconnectDelay; \
++  BOOL			_reconnectScheduled
++
+ #import	"common.h"
+ 
+ #define	EXPOSE_NSDistributedNotificationCenter_IVARS	1
+@@ -43,13 +48,45 @@
+ #import	"Foundation/NSHost.h"
+ #import	"Foundation/NSPortNameServer.h"
+ #import "Foundation/NSThread.h"
++#import	"Foundation/NSTimer.h"
++#import	"Foundation/NSEnumerator.h"
+ #import	"../Tools/gdnc.h"
+ #import "GSPThread.h"
+ 
++#define	GSInternal	NSDistributedNotificationCenterInternal
++#include	"GSInternal.h"
++GS_PRIVATE_INTERNAL(NSDistributedNotificationCenter)
++
++@interface	GSDistributedObservation : NSObject
++{
++@public
++  uint64_t				observer;
++  NSString				*selector;
++  NSString				*name;
++  NSString				*object;
++  NSNotificationSuspensionBehavior	behavior;
++}
++@end
++
++@implementation	GSDistributedObservation
++- (void) dealloc
++{
++  RELEASE(selector);
++  RELEASE(name);
++  RELEASE(object);
++  [super dealloc];
++}
++@end
++
++static const NSTimeInterval	reconnectFirstDelay = 0.5;
++static const NSTimeInterval	reconnectMaxDelay = 32.0;
+ 
+ @interface	NSDistributedNotificationCenter (Private)
+ - (void) _connect;
++- (id) _initWithType: (NSString*)type;
+ - (void) _invalidated: (NSNotification*)notification;
++- (void) _reconnect: (NSTimer*)timer;
++- (void) _scheduleReconnect;
+ - (void) postNotificationName: (NSString*)name
+ 		       object: (NSString*)object
+ 		     userInfo: (NSData*)info
+@@ -167,8 +204,7 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+ 
+ 		  tmp = (NSDistributedNotificationCenter*)
+ 		    NSAllocateObject(self, 0, NSDefaultMallocZone());
+-		  tmp->_centerLock = [NSRecursiveLock new];
+-		  tmp->_type = RETAIN(NSLocalNotificationCenterType);
++		  tmp = [tmp _initWithType: NSLocalNotificationCenterType];
+ 		  locCenter = tmp;
+ 		}
+ 	      NS_HANDLER
+@@ -195,8 +231,7 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+ 
+ 		  tmp = (NSDistributedNotificationCenter*)
+ 		    NSAllocateObject(self, 0, NSDefaultMallocZone());
+-		  tmp->_centerLock = [NSRecursiveLock new];
+-		  tmp->_type = RETAIN(GSPublicNotificationCenterType);
++		  tmp = [tmp _initWithType: GSPublicNotificationCenterType];
+ 		  pubCenter = tmp;
+ 		}
+ 	      NS_HANDLER
+@@ -223,8 +258,7 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+ 
+ 		  tmp = (NSDistributedNotificationCenter*)
+ 		    NSAllocateObject(self, 0, NSDefaultMallocZone());
+-		  tmp->_centerLock = [NSRecursiveLock new];
+-		  tmp->_type = RETAIN(GSNetworkNotificationCenterType);
++		  tmp = [tmp _initWithType: GSNetworkNotificationCenterType];
+ 		  netCenter = tmp;
+ 		}
+ 	      NS_HANDLER
+@@ -254,6 +288,8 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+     }
+   RELEASE(_remote);
+   RELEASE(_type);
++  RELEASE(internal->_observations);
++  GS_DESTROY_INTERNAL(NSDistributedNotificationCenter)
+   [super dealloc];
+ }
+ 
+@@ -353,6 +389,8 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+   [_centerLock lock];
+   NS_DURING
+     {
++      GSDistributedObservation	*o;
++
+       [self _connect];
+       [(id<GDNCProtocol>)_remote addObserver: (uint64_t)(uintptr_t)anObserver
+ 				    selector: NSStringFromSelector(aSelector)
+@@ -360,6 +398,14 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+ 				      object: anObject
+ 			  suspensionBehavior: suspensionBehavior
+ 					 for: (id<GDNCClient>)self];
++      o = [GSDistributedObservation new];
++      o->observer = (uint64_t)(uintptr_t)anObserver;
++      o->selector = RETAIN(NSStringFromSelector(aSelector));
++      o->name = [notificationName copy];
++      o->object = [anObject copy];
++      o->behavior = suspensionBehavior;
++      [internal->_observations addObject: o];
++      RELEASE(o);
+     }
+   NS_HANDLER
+     {
+@@ -479,6 +525,21 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+   [_centerLock lock];
+   NS_DURING
+     {
++      NSUInteger	i = [internal->_observations count];
++
++      while (i-- > 0)
++	{
++	  GSDistributedObservation	*o;
++
++	  o = [internal->_observations objectAtIndex: i];
++	  if ((anObserver == nil
++	    || o->observer == (uint64_t)(uintptr_t)anObserver)
++	    && (notificationName == nil || [notificationName isEqual: o->name])
++	    && (anObject == nil || [anObject isEqual: o->object]))
++	    {
++	      [internal->_observations removeObjectAtIndex: i];
++	    }
++	}
+       [self _connect];
+       [(id<GDNCProtocol>)_remote removeObserver: (uint64_t)(uintptr_t)anObserver
+ 					   name: notificationName
+@@ -800,9 +861,40 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+ 	       name: NSConnectionDidDieNotification
+ 	     object: c];
+       [_remote registerClient: (id<GDNCClient>)self];
++
++      if (_suspended)
++	{
++	  [_remote setSuspended: YES for: (id<GDNCClient>)self];
++	}
++      if ([internal->_observations count] > 0)
++	{
++	  NSEnumerator			*e;
++	  GSDistributedObservation	*o;
++
++	  e = [internal->_observations objectEnumerator];
++	  while ((o = [e nextObject]) != nil)
++	    {
++	      [_remote addObserver: o->observer
++			  selector: o->selector
++			      name: o->name
++			    object: o->object
++		suspensionBehavior: o->behavior
++			       for: (id<GDNCClient>)self];
++	    }
++	}
++      internal->_reconnectDelay = 0.0;
+     }
+ }
+ 
++- (id) _initWithType: (NSString*)type
++{
++  GS_CREATE_INTERNAL(NSDistributedNotificationCenter)
++  _centerLock = [NSRecursiveLock new];
++  _type = RETAIN(type);
++  internal->_observations = [NSMutableArray new];
++  return self;
++}
++
+ - (void) _invalidated: (NSNotification*)notification
+ {
+   id connection = [notification object];
+@@ -818,6 +910,63 @@ static gs_mutex_t 			classLock = GS_MUTEX_INIT_STATIC;
+ 		 NSInternalInconsistencyException);
+   RELEASE(_remote);
+   _remote = nil;
++
++  [self performSelectorOnMainThread: @selector(_scheduleReconnect)
++			 withObject: nil
++		      waitUntilDone: NO];
++}
++
++- (void) _reconnect: (NSTimer*)timer
++{
++  [_centerLock lock];
++  internal->_reconnectScheduled = NO;
++  if (_remote == nil && [internal->_observations count] > 0
++    && NO == [NSObject isExiting])
++    {
++      NS_DURING
++	{
++	  [self _connect];
++	}
++      NS_HANDLER
++	{
++	  NSDebugMLLog(@"NSDistributedNotificationCenter",
++	    @"Reconnecting to gdnc failed: %@", localException);
++	  if (internal->_reconnectDelay < reconnectFirstDelay)
++	    {
++	      internal->_reconnectDelay = reconnectFirstDelay;
++	    }
++	  internal->_reconnectDelay
++	    = MIN(internal->_reconnectDelay * 2, reconnectMaxDelay);
++	  if (_remote == nil)
++	    {
++	      [self _scheduleReconnect];
++	    }
++	}
++      NS_ENDHANDLER
++    }
++  [_centerLock unlock];
++}
++
++- (void) _scheduleReconnect
++{
++  [_centerLock lock];
++  if (_remote == nil && [internal->_observations count] > 0
++    && NO == internal->_reconnectScheduled && NO == [NSObject isExiting])
++    {
++      NSTimeInterval	delay = internal->_reconnectDelay;
++
++      if (delay < reconnectFirstDelay)
++	{
++	  delay = reconnectFirstDelay;
++	}
++      internal->_reconnectScheduled = YES;
++      [NSTimer scheduledTimerWithTimeInterval: delay
++				       target: self
++				     selector: @selector(_reconnect:)
++				     userInfo: nil
++				      repeats: NO];
++    }
++  [_centerLock unlock];
+ }
+ 
+ - (void) postNotificationName: (NSString*)name
+diff --git a/Tests/base/NSDistributedNotificationCenter/TestInfo b/Tests/base/NSDistributedNotificationCenter/TestInfo
+new file mode 100644
+index 000000000..14f571312
+--- /dev/null
++++ b/Tests/base/NSDistributedNotificationCenter/TestInfo
+@@ -0,0 +1,2 @@
++# The tests start their own gdnc in a private temporary directory:
++# the one named by GDNC, or gdnc from PATH.
+diff --git a/Tests/base/NSDistributedNotificationCenter/droppedClient.m b/Tests/base/NSDistributedNotificationCenter/droppedClient.m
+new file mode 100644
+index 000000000..4d22f5033
+--- /dev/null
++++ b/Tests/base/NSDistributedNotificationCenter/droppedClient.m
+@@ -0,0 +1,279 @@
++/*
++ * Copyright (c) 2026 Simon Peter
++ *
++ * SPDX-License-Identifier: BSD-2-Clause OR GPL-3.0-or-later
++ */
++#import "Testing.h"
++#import <Foundation/NSAutoreleasePool.h>
++#import <Foundation/NSData.h>
++#import <Foundation/NSDate.h>
++#import <Foundation/NSDictionary.h>
++#import <Foundation/NSDistributedNotificationCenter.h>
++#import <Foundation/NSPathUtilities.h>
++#import <Foundation/NSPortNameServer.h>
++#import <Foundation/NSString.h>
++#import <Foundation/NSRunLoop.h>
++#import <Foundation/NSThread.h>
++
++#if	!defined(_WIN32)
++#include <errno.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/wait.h>
++#include <unistd.h>
++
++/* gdnc drops a client that stops reading for longer than its client
++ * timeout.  Once that client runs again it must reconnect by itself and
++ * register its observers again, or it stays deaf for the rest of its life.
++ *
++ * The test runs its own gdnc, with a one second client timeout, in a
++ * private temporary directory, which is where NSMessagePort keeps its
++ * names, so it never touches the gdnc of the user running it.  Set GDNC to
++ * the gdnc binary to use (default: gdnc in PATH).
++ */
++
++static NSString	*flood = @"GSDroppedClientTestFlood";
++static NSString	*marker = @"GSDroppedClientTestMarker";
++static int	bound = 15;
++
++@interface	DroppedClientObserver : NSObject
++- (void) received: (NSNotification*)n;
++@end
++
++@implementation	DroppedClientObserver
++- (void) received: (NSNotification*)n
++{
++  if ([[n name] isEqual: marker])
++    {
++      _exit(0);
++    }
++}
++@end
++
++static pid_t	children[2];
++
++static void
++killChildren(void)
++{
++  int	i;
++
++  for (i = 0; i < 2; i++)
++    {
++      if (children[i] > 0)
++	{
++	  kill(children[i], SIGKILL);
++	}
++    }
++}
++
++static void
++parentHung(int sig)
++{
++  static const char	msg[] = "Failed test: the test timed out\n";
++
++  (void)write(2, msg, sizeof(msg) - 1);
++  killChildren();
++  _exit(1);
++}
++
++/* A client that registers its observers, says so, and then services its
++ * run loop.  It exits 0 as soon as it receives the marker, which the
++ * parent posts only after the client was dropped and resumed.
++ */
++static pid_t
++startClient(int *go, int *ack)
++{
++  int	g[2];
++  int	a[2];
++  pid_t	pid;
++
++  if (pipe(g) != 0 || pipe(a) != 0)
++    {
++      return -1;
++    }
++  pid = fork();
++  if (pid == 0)
++    {
++      NSDistributedNotificationCenter	*dnc;
++      DroppedClientObserver		*o;
++      char				c = 1;
++
++      close(g[1]);
++      close(a[0]);
++      if (read(g[0], &c, 1) != 1)
++	{
++	  _exit(4);
++	}
++      o = [DroppedClientObserver new];
++      dnc = [NSDistributedNotificationCenter defaultCenter];
++      [dnc addObserver: o selector: @selector(received:)
++		  name: flood object: nil];
++      [dnc addObserver: o selector: @selector(received:)
++		  name: marker object: nil];
++      (void)write(a[1], &c, 1);
++      [[NSRunLoop currentRunLoop] runUntilDate:
++	[NSDate dateWithTimeIntervalSinceNow: bound * 4]];
++      _exit(1);
++    }
++  close(g[0]);
++  close(a[1]);
++  *go = g[1];
++  *ack = a[0];
++  return pid;
++}
++
++static pid_t
++startServer(void)
++{
++  pid_t	pid = fork();
++
++  if (pid == 0)
++    {
++      const char	*gdnc = getenv("GDNC");
++
++      if (gdnc == NULL)
++	{
++	  gdnc = "gdnc";
++	}
++      execlp(gdnc, gdnc, "--no-fork", "-GDNCClientTimeout", "1",
++	(char*)NULL);
++      _exit(127);
++    }
++  return pid;
++}
++
++static void
++runFor(NSTimeInterval seconds)
++{
++  [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			   beforeDate: [NSDate dateWithTimeIntervalSinceNow: seconds]];
++}
++
++/* NSMessagePort reads TEMP/TMP once at start-up, so a private directory
++ * has to be in place before the process starts: re-execute with one.
++ */
++static void
++usePrivateTemporaryDirectory(char **argv)
++{
++  char	dir[] = "/tmp/droppedClient.XXXXXX";
++
++  if (getenv("DROPPED_CLIENT_TMP") != NULL)
++    {
++      return;
++    }
++  if (mkdtemp(dir) == NULL)
++    {
++      fprintf(stderr, "mkdtemp: %s\n", strerror(errno));
++      exit(1);
++    }
++  setenv("DROPPED_CLIENT_TMP", dir, 1);
++  setenv("TEMP", dir, 1);
++  setenv("TMP", dir, 1);
++  execv(argv[0], argv);
++  fprintf(stderr, "execv %s: %s\n", argv[0], strerror(errno));
++  exit(1);
++}
++#endif
++
++int main(int argc, char **argv)
++{
++#if	!defined(_WIN32)
++  usePrivateTemporaryDirectory(argv);
++#endif
++  START_SET("a client dropped by gdnc receives again")
++#if	defined(_WIN32)
++    SKIP("fork() is not available")
++#else
++    NSDistributedNotificationCenter	*dnc;
++    NSDictionary			*info;
++    NSDate				*limit;
++    pid_t				server;
++    pid_t				client;
++    int					go;
++    int					ack;
++    int					status = -1;
++    unsigned				i;
++    BOOL				exited = NO;
++    char				c;
++    char				cmd[256];
++
++    /* Never run against the gdnc of the user running the test. */
++    if ([NSTemporaryDirectory() isEqual: [NSString stringWithUTF8String:
++      getenv("DROPPED_CLIENT_TMP")]] == NO)
++      {
++	fprintf(stderr, "private temporary directory not in use: %s\n",
++	  [NSTemporaryDirectory() UTF8String]);
++	exit(1);
++      }
++
++    client = startClient(&go, &ack);
++    server = startServer();
++    children[0] = client;
++    children[1] = server;
++    signal(SIGALRM, parentHung);
++    alarm(bound * 4);
++
++    limit = [NSDate dateWithTimeIntervalSinceNow: bound];
++    while ([[NSMessagePortNameServer sharedInstance]
++      portForName: @"GDNCServer"] == nil && [limit timeIntervalSinceNow] > 0)
++      {
++	[NSThread sleepForTimeInterval: 0.05];
++      }
++    PASS(waitpid(server, &status, WNOHANG) == 0
++      && [[NSMessagePortNameServer sharedInstance]
++	portForName: @"GDNCServer"] != nil,
++      "a private gdnc is running");
++
++    c = 1;
++    (void)write(go, &c, 1);
++    PASS(read(ack, &c, 1) == 1 && kill(client, SIGSTOP) == 0,
++      "a client registered its observers and then stopped reading");
++
++    /* Fill the stopped client's socket so that gdnc times out on it. */
++    dnc = [NSDistributedNotificationCenter defaultCenter];
++    info = [NSDictionary dictionaryWithObject:
++      [NSMutableData dataWithLength: 4096] forKey: @"payload"];
++    for (i = 0; i < 200; i++)
++      {
++	[dnc postNotificationName: flood object: nil userInfo: info
++	       deliverImmediately: YES];
++      }
++    /* Long enough for gdnc's one second timeout to expire. */
++    runFor(3.0);
++    kill(client, SIGCONT);
++
++    /* Post the marker until the resumed client has it. */
++    limit = [NSDate dateWithTimeIntervalSinceNow: bound];
++    while (exited == NO && [limit timeIntervalSinceNow] > 0)
++      {
++	NSAutoreleasePool	*pool = [NSAutoreleasePool new];
++
++	[dnc postNotificationName: marker object: nil userInfo: nil
++	       deliverImmediately: YES];
++	runFor(0.25);
++	if (waitpid(client, &status, WNOHANG) == client)
++	  {
++	    exited = YES;
++	  }
++	[pool drain];
++      }
++    PASS(exited && WIFEXITED(status) && WEXITSTATUS(status) == 0,
++      "the dropped client gets a notification after it resumes");
++    PASS(waitpid(server, &status, WNOHANG) == 0, "gdnc is still running");
++    alarm(0);
++
++    if (exited)
++      {
++	children[0] = 0;
++      }
++    killChildren();
++    waitpid(client, NULL, WNOHANG);
++    waitpid(server, NULL, 0);
++    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", getenv("DROPPED_CLIENT_TMP"));
++    (void)system(cmd);
++#endif
++  END_SET("a client dropped by gdnc receives again")
++  return 0;
++}
+diff --git a/Tests/base/NSDistributedNotificationCenter/serverRestart.m b/Tests/base/NSDistributedNotificationCenter/serverRestart.m
+new file mode 100644
+index 000000000..c4b1b158c
+--- /dev/null
++++ b/Tests/base/NSDistributedNotificationCenter/serverRestart.m
+@@ -0,0 +1,280 @@
++/*
++ * Copyright (c) 2026 Simon Peter
++ *
++ * SPDX-License-Identifier: BSD-2-Clause OR GPL-3.0-or-later
++ */
++#import "Testing.h"
++#import <Foundation/NSAutoreleasePool.h>
++#import <Foundation/NSDate.h>
++#import <Foundation/NSDistributedNotificationCenter.h>
++#import <Foundation/NSPathUtilities.h>
++#import <Foundation/NSPortNameServer.h>
++#import <Foundation/NSString.h>
++#import <Foundation/NSRunLoop.h>
++#import <Foundation/NSThread.h>
++
++#if	!defined(_WIN32)
++#include <errno.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/wait.h>
++#include <unistd.h>
++
++/* A process that only observes distributed notifications must keep
++ * receiving them after gdnc was restarted: the center has to reconnect
++ * by itself and register its observers with the new gdnc again.
++ *
++ * The test runs its own gdnc in a private temporary directory, which is
++ * where NSMessagePort keeps its names, so it never touches the gdnc of
++ * the user running it.  Set GDNC to the gdnc binary to use (default: gdnc
++ * in PATH).
++ */
++
++static NSString	*name = @"GSServerRestartTestNotification";
++static int	bound = 10;
++
++@interface	RestartObserver : NSObject
++{
++@public
++  unsigned	received;
++}
++- (void) received: (NSNotification*)n;
++@end
++
++@implementation	RestartObserver
++- (void) received: (NSNotification*)n
++{
++  received++;
++}
++@end
++
++static pid_t	children[3];
++
++static void
++killChildren(void)
++{
++  int	i;
++
++  for (i = 0; i < 3; i++)
++    {
++      if (children[i] > 0)
++	{
++	  kill(children[i], SIGKILL);
++	}
++    }
++}
++
++static void
++parentHung(int sig)
++{
++  static const char	msg[] = "Failed test: the test timed out\n";
++
++  (void)write(2, msg, sizeof(msg) - 1);
++  killChildren();
++  _exit(1);
++}
++
++static BOOL
++waitForCount(RestartObserver *o, unsigned count, NSTimeInterval seconds)
++{
++  NSDate	*limit = [NSDate dateWithTimeIntervalSinceNow: seconds];
++
++  while (o->received < count && [limit timeIntervalSinceNow] > 0)
++    {
++      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			       beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.1]];
++    }
++  return o->received >= count;
++}
++
++/* A poster that waits for the parent's go and then posts every 250 ms
++ * until it is killed, so the parent does not have to know when exactly
++ * its center has reconnected.  It is forked before the parent uses DO.
++ */
++static pid_t
++startPoster(int *go)
++{
++  int	g[2];
++  pid_t	pid;
++
++  if (pipe(g) != 0)
++    {
++      return -1;
++    }
++  pid = fork();
++  if (pid == 0)
++    {
++      NSDistributedNotificationCenter	*dnc;
++      char				c;
++      int				i;
++
++      close(g[1]);
++      if (read(g[0], &c, 1) != 1)
++	{
++	  _exit(4);
++	}
++      dnc = [NSDistributedNotificationCenter defaultCenter];
++      for (i = 0; i < bound * 4 * 2; i++)
++	{
++	  NSAutoreleasePool	*pool = [NSAutoreleasePool new];
++
++	  [dnc postNotificationName: name object: nil userInfo: nil
++		 deliverImmediately: YES];
++	  [pool drain];
++	  [NSThread sleepForTimeInterval: 0.25];
++	}
++      _exit(0);
++    }
++  close(g[0]);
++  *go = g[1];
++  return pid;
++}
++
++static void
++sendByte(int fd)
++{
++  char	c = 1;
++
++  (void)write(fd, &c, 1);
++}
++
++static pid_t
++startServer(void)
++{
++  pid_t	pid = fork();
++
++  if (pid == 0)
++    {
++      const char	*gdnc = getenv("GDNC");
++
++      if (gdnc == NULL)
++	{
++	  gdnc = "gdnc";
++	}
++      execlp(gdnc, gdnc, "--no-fork", (char*)NULL);
++      _exit(127);
++    }
++  return pid;
++}
++
++static BOOL
++serverUp(pid_t server)
++{
++  NSDate	*limit = [NSDate dateWithTimeIntervalSinceNow: bound];
++  int		status;
++
++  while ([[NSMessagePortNameServer sharedInstance]
++    portForName: @"GDNCServer"] == nil && [limit timeIntervalSinceNow] > 0)
++    {
++      [NSThread sleepForTimeInterval: 0.05];
++    }
++  return waitpid(server, &status, WNOHANG) == 0
++    && [[NSMessagePortNameServer sharedInstance]
++      portForName: @"GDNCServer"] != nil;
++}
++
++/* NSMessagePort reads TEMP/TMP once at start-up, so a private directory
++ * has to be in place before the process starts: re-execute with one.
++ */
++static void
++usePrivateTemporaryDirectory(char **argv)
++{
++  char	dir[] = "/tmp/serverRestart.XXXXXX";
++
++  if (getenv("SERVER_RESTART_TMP") != NULL)
++    {
++      return;
++    }
++  if (mkdtemp(dir) == NULL)
++    {
++      fprintf(stderr, "mkdtemp: %s\n", strerror(errno));
++      exit(1);
++    }
++  setenv("SERVER_RESTART_TMP", dir, 1);
++  setenv("TEMP", dir, 1);
++  setenv("TMP", dir, 1);
++  execv(argv[0], argv);
++  fprintf(stderr, "execv %s: %s\n", argv[0], strerror(errno));
++  exit(1);
++}
++#endif
++
++int main(int argc, char **argv)
++{
++#if	!defined(_WIN32)
++  usePrivateTemporaryDirectory(argv);
++#endif
++  START_SET("observers survive a gdnc restart")
++#if	defined(_WIN32)
++    SKIP("fork() is not available")
++#else
++    NSDistributedNotificationCenter	*dnc;
++    RestartObserver			*kept = [RestartObserver new];
++    RestartObserver			*removed = [RestartObserver new];
++    pid_t				server;
++    pid_t				before;
++    pid_t				after;
++    int					beforeGo;
++    int					afterGo;
++    char				cmd[256];
++
++    /* Never run against the gdnc of the user running the test. */
++    if ([NSTemporaryDirectory() isEqual: [NSString stringWithUTF8String:
++      getenv("SERVER_RESTART_TMP")]] == NO)
++      {
++	fprintf(stderr, "private temporary directory not in use: %s\n",
++	  [NSTemporaryDirectory() UTF8String]);
++	exit(1);
++      }
++
++    before = startPoster(&beforeGo);
++    after = startPoster(&afterGo);
++    server = startServer();
++    children[0] = before;
++    children[1] = after;
++    children[2] = server;
++    signal(SIGALRM, parentHung);
++    alarm(bound * 6);
++
++    PASS(serverUp(server), "a private gdnc is running");
++
++    dnc = [NSDistributedNotificationCenter defaultCenter];
++    [dnc addObserver: kept selector: @selector(received:)
++		name: name object: nil];
++    [dnc addObserver: removed selector: @selector(received:)
++		name: name object: nil];
++    sendByte(beforeGo);
++    PASS(waitForCount(kept, 1, bound) && waitForCount(removed, 1, bound),
++      "the observers get a notification from another process");
++    kill(before, SIGKILL);
++    waitpid(before, NULL, 0);
++    children[0] = 0;
++    [dnc removeObserver: removed name: name object: nil];
++    removed->received = 0;
++
++    kill(server, SIGKILL);
++    waitpid(server, NULL, 0);
++    server = startServer();
++    children[2] = server;
++    PASS(serverUp(server), "gdnc was killed and a new one started");
++
++    kept->received = 0;
++    sendByte(afterGo);
++    PASS(waitForCount(kept, 1, bound),
++      "the observer gets a notification posted after the restart"
++      " (%u within %d s)", kept->received, bound);
++    PASS(removed->received == 0,
++      "an observer removed before the restart is not registered again");
++    alarm(0);
++
++    killChildren();
++    waitpid(after, NULL, 0);
++    waitpid(server, NULL, 0);
++    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", getenv("SERVER_RESTART_TMP"));
++    (void)system(cmd);
++#endif
++  END_SET("observers survive a gdnc restart")
++  return 0;
++}
+diff --git a/Tests/base/NSDistributedNotificationCenter/stuckClient.m b/Tests/base/NSDistributedNotificationCenter/stuckClient.m
+new file mode 100644
+index 000000000..5930eb581
+--- /dev/null
++++ b/Tests/base/NSDistributedNotificationCenter/stuckClient.m
+@@ -0,0 +1,419 @@
++/*
++ * Copyright (c) 2026 Simon Peter
++ *
++ * SPDX-License-Identifier: BSD-2-Clause OR GPL-3.0-or-later
++ */
++#import "Testing.h"
++#import <Foundation/NSAutoreleasePool.h>
++#import <Foundation/NSData.h>
++#import <Foundation/NSDate.h>
++#import <Foundation/NSDictionary.h>
++#import <Foundation/NSDistributedNotificationCenter.h>
++#import <Foundation/NSException.h>
++#import <Foundation/NSPathUtilities.h>
++#import <Foundation/NSPortNameServer.h>
++#import <Foundation/NSString.h>
++#import <Foundation/NSRunLoop.h>
++#import <Foundation/NSThread.h>
++
++#if	!defined(_WIN32)
++#include <errno.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/wait.h>
++#include <time.h>
++#include <unistd.h>
++
++/* One client of gdnc that stops reading its socket (a hung or stopped
++ * application) must not stop gdnc from serving everybody else.
++ *
++ * The test runs its own gdnc in a private temporary directory, which is
++ * where NSMessagePort keeps its names, so neither an unfixed gdnc that
++ * hangs nor the stopped client can disturb the gdnc of the user running
++ * the test.  Set GDNC to the gdnc binary under test (default: gdnc in
++ * PATH).
++ */
++
++static NSString	*flood = @"GSStuckClientTestFlood";
++static NSString	*marker = @"GSStuckClientTestMarker";
++/* Enough to fill the stopped client's socket several times over (about
++ * 50 posts did it on Linux), without being so many that an unfixed gdnc
++ * crashes rather than hangs: one nested wait per post was the crash.
++ */
++static unsigned	posts = 200;
++/* Generous against gdnc's own client timeout, far below "never". */
++static int	bound = 30;
++
++@interface	StuckClientObserver : NSObject
++{
++@public
++  unsigned	received;
++  BOOL		sawMarker;
++}
++- (void) received: (NSNotification*)n;
++@end
++
++@implementation	StuckClientObserver
++- (void) received: (NSNotification*)n
++{
++  if ([[n name] isEqual: marker])
++    {
++      sawMarker = YES;
++    }
++  else
++    {
++      received++;
++    }
++}
++@end
++
++static BOOL
++waitFor(BOOL *flag, NSTimeInterval seconds)
++{
++  NSDate	*limit = [NSDate dateWithTimeIntervalSinceNow: seconds];
++
++  while (*flag == NO && [limit timeIntervalSinceNow] > 0)
++    {
++      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			       beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.1]];
++    }
++  return *flag;
++}
++
++static pid_t	children[3];
++
++static BOOL
++waitForCount(StuckClientObserver *o, unsigned count, NSTimeInterval seconds)
++{
++  NSDate	*limit = [NSDate dateWithTimeIntervalSinceNow: seconds];
++
++  while (o->received < count && [limit timeIntervalSinceNow] > 0)
++    {
++      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			       beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.1]];
++    }
++  return o->received >= count;
++}
++
++static void
++hung(int sig)
++{
++  _exit(3);
++}
++
++/* An unfixed gdnc can block this process too; fail instead of hanging the
++ * test run, and take the stopped client and the private gdnc along.
++ */
++static void
++killChildren(void)
++{
++  int	i;
++
++  for (i = 0; i < 3; i++)
++    {
++      if (children[i] > 0)
++	{
++	  kill(children[i], SIGKILL);
++	}
++    }
++}
++
++static void
++parentHung(int sig)
++{
++  static const char	msg[] = "Failed test: the test timed out\n";
++
++  (void)write(2, msg, sizeof(msg) - 1);
++  killChildren();
++  _exit(1);
++}
++
++/* Blocks until the parent writes a byte, so a child touches gdnc only
++ * when the test is ready for it and never shares the parent's connection.
++ */
++static void
++awaitGo(int fd)
++{
++  char	c;
++
++  if (read(fd, &c, 1) != 1)
++    {
++      _exit(4);
++    }
++  close(fd);
++}
++
++static void
++sendByte(int fd)
++{
++  char	c = 1;
++
++  (void)write(fd, &c, 1);
++}
++
++/* A client that registers an observer, says so, and then keeps servicing
++ * its run loop until the parent stops it with SIGSTOP.
++ */
++static pid_t
++startStuckClient(int *go, int *ack)
++{
++  int	g[2];
++  int	a[2];
++  pid_t	pid;
++
++  if (pipe(g) != 0 || pipe(a) != 0)
++    {
++      return -1;
++    }
++  pid = fork();
++  if (pid == 0)
++    {
++      StuckClientObserver	*o;
++
++      close(g[1]);
++      close(a[0]);
++      awaitGo(g[0]);
++      o = [StuckClientObserver new];
++      [[NSDistributedNotificationCenter defaultCenter]
++	addObserver: o
++	   selector: @selector(received:)
++	       name: flood
++	     object: nil];
++      sendByte(a[1]);
++      [[NSRunLoop currentRunLoop] run];
++      _exit(0);
++    }
++  close(g[0]);
++  close(a[1]);
++  *go = g[1];
++  *ack = a[0];
++  return pid;
++}
++
++/* A client that connects only once the stuck client has blocked gdnc:
++ * it must register an observer and get a notification back.  It exits 0
++ * on success, so the parent only has to time it.
++ */
++static pid_t
++startLateClient(int *go)
++{
++  int	g[2];
++  pid_t	pid;
++
++  if (pipe(g) != 0)
++    {
++      return -1;
++    }
++  pid = fork();
++  if (pid == 0)
++    {
++      NSDistributedNotificationCenter	*dnc;
++      StuckClientObserver		*o;
++
++      close(g[1]);
++      awaitGo(g[0]);
++      signal(SIGALRM, hung);
++      alarm(bound * 2);
++      o = [StuckClientObserver new];
++      dnc = [NSDistributedNotificationCenter defaultCenter];
++      /* Observe what the stopped client observes, so delivery to it
++       * stands between this client and its notification. */
++      [dnc addObserver: o selector: @selector(received:)
++		  name: flood object: nil];
++      [dnc postNotificationName: flood object: nil userInfo: nil
++	     deliverImmediately: YES];
++      _exit(waitForCount(o, 1, bound * 2) ? 0 : 1);
++    }
++  close(g[0]);
++  *go = g[1];
++  return pid;
++}
++
++static pid_t
++startServer(void)
++{
++  pid_t	pid = fork();
++
++  if (pid == 0)
++    {
++      const char	*gdnc = getenv("GDNC");
++
++      if (gdnc == NULL)
++	{
++	  gdnc = "gdnc";
++	}
++      execlp(gdnc, gdnc, "--no-fork", (char*)NULL);
++      _exit(127);
++    }
++  return pid;
++}
++
++/* Waits for a child for up to `seconds`; returns its exit status, or -1
++ * if it did not finish in time, and the time it took in *took.
++ */
++static int
++reap(pid_t pid, int seconds, double *took)
++{
++  struct timespec	start;
++  struct timespec	now;
++  int			status;
++
++  clock_gettime(CLOCK_MONOTONIC, &start);
++  for (;;)
++    {
++      clock_gettime(CLOCK_MONOTONIC, &now);
++      *took = (now.tv_sec - start.tv_sec)
++	+ (now.tv_nsec - start.tv_nsec) / 1e9;
++      if (waitpid(pid, &status, WNOHANG) == pid)
++	{
++	  return WIFEXITED(status) ? WEXITSTATUS(status) : 128;
++	}
++      if (*took > seconds)
++	{
++	  return -1;
++	}
++      /* Keep reading our own notifications, or gdnc would rightly
++       * treat this process as a client that stopped reading too. */
++      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			       beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.05]];
++    }
++}
++
++/* NSMessagePort reads TEMP/TMP once at start-up, so a private directory
++ * has to be in place before the process starts: re-execute with one.
++ */
++static void
++usePrivateTemporaryDirectory(char **argv)
++{
++  char	dir[] = "/tmp/stuckClient.XXXXXX";
++
++  if (getenv("STUCK_CLIENT_TMP") != NULL)
++    {
++      return;
++    }
++  if (mkdtemp(dir) == NULL)
++    {
++      fprintf(stderr, "mkdtemp: %s\n", strerror(errno));
++      exit(1);
++    }
++  setenv("STUCK_CLIENT_TMP", dir, 1);
++  setenv("TEMP", dir, 1);
++  setenv("TMP", dir, 1);
++  execv(argv[0], argv);
++  fprintf(stderr, "execv %s: %s\n", argv[0], strerror(errno));
++  exit(1);
++}
++#endif
++
++int main(int argc, char **argv)
++{
++#if	!defined(_WIN32)
++  usePrivateTemporaryDirectory(argv);
++#endif
++  START_SET("gdnc with a client that stopped reading")
++#if	defined(_WIN32)
++    SKIP("fork() is not available")
++#else
++    NSDistributedNotificationCenter	*dnc;
++    StuckClientObserver			*o = [StuckClientObserver new];
++    NSDictionary			*info;
++    NSDate				*limit;
++    pid_t				server;
++    pid_t				stuck;
++    pid_t				late;
++    int					stuckGo;
++    int					stuckAck;
++    int					lateGo;
++    int					status;
++    unsigned				i;
++    double				took;
++    char				c;
++    char				cmd[256];
++
++    /* Never run against the gdnc of the user running the test. */
++    if ([NSTemporaryDirectory() isEqual: [NSString stringWithUTF8String:
++      getenv("STUCK_CLIENT_TMP")]] == NO)
++      {
++	fprintf(stderr, "private temporary directory not in use: %s\n",
++	  [NSTemporaryDirectory() UTF8String]);
++	exit(1);
++      }
++
++    /* Fork every client before this process uses DO itself. */
++    stuck = startStuckClient(&stuckGo, &stuckAck);
++    late = startLateClient(&lateGo);
++    server = startServer();
++    children[0] = stuck;
++    children[1] = late;
++    children[2] = server;
++    signal(SIGALRM, parentHung);
++    alarm(bound * 4);
++
++    limit = [NSDate dateWithTimeIntervalSinceNow: 10.0];
++    while ([[NSMessagePortNameServer sharedInstance]
++      portForName: @"GDNCServer"] == nil && [limit timeIntervalSinceNow] > 0)
++      {
++	[NSThread sleepForTimeInterval: 0.1];
++      }
++    PASS(waitpid(server, &status, WNOHANG) == 0
++      && [[NSMessagePortNameServer sharedInstance]
++	portForName: @"GDNCServer"] != nil,
++      "a private gdnc is running");
++
++    sendByte(stuckGo);
++    PASS(read(stuckAck, &c, 1) == 1 && kill(stuck, SIGSTOP) == 0,
++      "a client registered an observer and then stopped reading");
++
++    dnc = [NSDistributedNotificationCenter defaultCenter];
++    [dnc addObserver: o selector: @selector(received:)
++		name: flood object: nil];
++    [dnc addObserver: o selector: @selector(received:)
++		name: marker object: nil];
++
++    /* Large enough to fill the stopped client's socket many times over,
++     * and to nest gdnc's waits until it crashes if every post that
++     * arrives during a wait starts another one.
++     */
++    info = [NSDictionary dictionaryWithObject:
++      [NSMutableData dataWithLength: 4096] forKey: @"payload"];
++    NS_DURING
++      {
++	for (i = 0; i < posts; i++)
++	  {
++	    [dnc postNotificationName: flood object: nil userInfo: info
++		   deliverImmediately: YES];
++	  }
++	[dnc postNotificationName: marker object: nil userInfo: nil
++	       deliverImmediately: YES];
++      }
++    NS_HANDLER
++      {
++	NSLog(@"posting raised %@", localException);
++      }
++    NS_ENDHANDLER
++
++    sendByte(lateGo);
++    status = reap(late, bound, &took);
++    PASS(status == 0, "a client that connects while one is stopped"
++      " registers and gets a notification (status %d after %.1f s)",
++      status, took);
++
++    PASS(waitFor(&o->sawMarker, bound), "the poster gets its marker");
++    /* The late client's post counts too. */
++    PASS(waitForCount(o, posts + 1, bound),
++      "every post reached the poster (%u of %u)", o->received, posts + 1);
++    PASS(waitpid(server, &status, WNOHANG) == 0, "gdnc is still running");
++    alarm(0);
++
++    killChildren();
++    waitpid(late, NULL, 0);
++    waitpid(stuck, NULL, 0);
++    waitpid(server, NULL, 0);
++    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", getenv("STUCK_CLIENT_TMP"));
++    (void)system(cmd);
++#endif
++  END_SET("gdnc with a client that stopped reading")
++  return 0;
++}
+diff --git a/Tools/gdnc.m b/Tools/gdnc.m
+index 10f6296a9..be6c496dd 100644
+--- a/Tools/gdnc.m
++++ b/Tools/gdnc.m
+@@ -75,6 +75,8 @@ static BOOL	auto_stop = NO;		/* Should we shut down when unused? */
+ 
+ static NSTimer  *timer = nil;           /* When to shut down. */
+ 
++static NSTimeInterval	clientTimeout = 5.0;
++
+ #if defined(HAVE_SYSLOG) || defined(HAVE_SLOGF)
+ #  if defined(HAVE_SLOGF)
+ #    include <sys/slogcodes.h>
+@@ -335,6 +337,8 @@ ihandler(int sig)
+   NSHashTable		*allObservers;
+   NSMutableDictionary	*observersForNames;
+   NSMutableDictionary	*observersForObjects;
++  NSMutableArray	*pending;
++  BOOL			delivering;
+ }
+ 
+ - (void) addObserver: (uint64_t)anObserver
+@@ -355,6 +359,8 @@ ihandler(int sig)
+ 		  deliverImmediately: (BOOL)deliverImmediately
+ 				 for: (id<GDNCClient>)client;
+ 
++- (void) deliverPending;
++
+ - (void) removeObserver: (GDNCObserver*)observer;
+ 
+ - (void) removeObserversForClients: (NSMapTable*)clients;
+@@ -425,6 +431,7 @@ ihandler(int sig)
+    */
+   RELEASE(observersForNames);
+   RELEASE(observersForObjects);
++  RELEASE(pending);
+   [super dealloc];
+ }
+ 
+@@ -447,8 +454,13 @@ ihandler(int sig)
+   allObservers = NSCreateHashTable(NSNonOwnedPointerHashCallBacks, 0);
+   observersForNames = [NSMutableDictionary new];
+   observersForObjects = [NSMutableDictionary new];
++  pending = [NSMutableArray new];
+ 
+   defs = [NSUserDefaults standardUserDefaults];
++  if ([defs doubleForKey: @"GDNCClientTimeout"] > 0.0)
++    {
++      clientTimeout = [defs doubleForKey: @"GDNCClientTimeout"];
++    }
+   hostname = [defs stringForKey: @"NSHost"];
+   if ([hostname length] > 0 || [defs boolForKey: @"GSPublic"] == YES)
+     {
+@@ -668,6 +680,7 @@ ihandler(int sig)
+ 	   name: NSConnectionDidDieNotification
+ 	 object: newConn];
+   [newConn setDelegate: self];
++  [newConn setRequestTimeout: clientTimeout];
+   /*
+    *	Create a new map table entry for this connection with a value that
+    *	is a table (normally with a single entry) containing registered
+@@ -848,48 +861,86 @@ ihandler(int sig)
+     }
+ 
+   /*
+-   *	Now perform the actual posting of the notification to the observers in
+-   *	our array.
++   *	Now arrange for the actual posting of the notification to the
++   *	observers in our array.
+    */
+   for (pos = [observers count]; pos > 0; pos--)
+     {
+       GDNCObserver	*obs = [observers objectAtIndex: pos - 1];
+ 
+-      if (obs->client->suspended == NO || deliverImmediately == YES)
++      if ((obs->client->suspended == NO || deliverImmediately == YES)
++	&& [pending indexOfObjectIdenticalTo: obs] == NSNotFound)
+ 	{
+-	  /*
+-	   *	Post notifications to the observer until:
+-	   *		an exception		(obs is set to nil)
+-	   *		the queue is empty	([obs->queue count] == 0)
+-	   *		the observer is removed	(obs is not in allObservers)
+-	   */
+-	  while (obs != nil && [obs->queue count] > 0
+-	    && NSHashGet(allObservers, obs) != 0)
++	  [pending addObject: obs];
++	}
++    }
++  [self deliverPending];
++}
++
++- (void) deliverPending
++{
++  if (delivering == YES)
++    {
++      return;
++    }
++  delivering = YES;
++  while ([pending count] > 0)
++    {
++      GDNCObserver	*obs = RETAIN([pending objectAtIndex: 0]);
++      NSConnection	*c = nil;
++      BOOL		failed = NO;
++
++      [pending removeObjectAtIndex: 0];
++      if (NSHashGet(allObservers, obs) != 0)
++	{
++	  c = RETAIN([(NSDistantObject*)obs->client->client
++	    connectionForProxy]);
++	}
++
++      /*
++       *	Post notifications to the observer until:
++       *		an exception		(failed is set)
++       *		the queue is empty	([obs->queue count] == 0)
++       *		the observer is removed	(obs is not in allObservers)
++       */
++      while (failed == NO && [obs->queue count] > 0
++	&& NSHashGet(allObservers, obs) != 0)
++	{
++	  GDNCNotification *n;
++	  n = RETAIN([obs->queue objectAtIndex: 0]);
++	  NS_DURING
+ 	    {
+-	      GDNCNotification *n;
+-	      n = RETAIN([obs->queue objectAtIndex: 0]);
+-	      NS_DURING
+-		{
+-		  [obs->queue removeObjectAtIndex: 0];
++	      [obs->queue removeObjectAtIndex: 0];
+   if (debugging)
+     NSLog(@"Posting to observer %llu with %@", (unsigned long long)obs->observer, n);
+-		  [obs->client->client postNotificationName: n->name
+-						     object: n->object
+-						   userInfo: n->info
+-						   selector: obs->selector
+-							 to: obs->observer];
++	      [obs->client->client postNotificationName: n->name
++						 object: n->object
++					       userInfo: n->info
++					       selector: obs->selector
++						     to: obs->observer];
++	    }
++	  NS_HANDLER
++	    {
++	      if ([[localException name] isEqual: NSPortTimeoutException])
++		{
++		  NSLog(@"Dropping a client that has not read for %g"
++		    @" seconds: %@", clientTimeout, c);
++		  [c invalidate];
+ 		}
+-	      NS_HANDLER
++	      else
+ 		{
+-		  obs = nil;
+ 		  NSLog(@"Problem posting notification to client: %@",
+ 		    localException);
+ 		}
+-	      NS_ENDHANDLER
+-	      RELEASE(n);
++	      failed = YES;
+ 	    }
++	  NS_ENDHANDLER
++	  RELEASE(n);
+ 	}
++      RELEASE(c);
++      RELEASE(obs);
+     }
++  delivering = NO;
+ }
+ 
+ - (void) removeObserver: (GDNCObserver*)observer
+@@ -1230,8 +1281,9 @@ main(int argc, char** argv, char** env)
+     server = [GDNCServer new];
+ 
+     /*
+-     * Close standard input, output, and error to run as daemon.
++     * Detach standard input, output, and error to run as daemon.
+      */
++#if	defined(_WIN32)
+     [[NSFileHandle fileHandleWithStandardInput] closeFile];
+     [[NSFileHandle fileHandleWithStandardOutput] closeFile];
+ #ifndef __MINGW__
+@@ -1240,6 +1292,27 @@ main(int argc, char** argv, char** env)
+ 	[[NSFileHandle fileHandleWithStandardError] closeFile];
+       }
+ #endif
++#else
++    {
++      int	fd = open("/dev/null", O_RDWR);
++
++      if (fd < 0)
++	{
++	  gdnc_log(LOG_CRIT, "unable to open /dev/null");
++	  exit(EXIT_FAILURE);
++	}
++      dup2(fd, 0);
++      dup2(fd, 1);
++      if (debugging == NO)
++	{
++	  dup2(fd, 2);
++	}
++      if (fd > 2)
++	{
++	  close(fd);
++	}
++    }
++#endif
+ 
+     RELEASE(pool);
+   }

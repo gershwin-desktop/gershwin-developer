@@ -1,0 +1,18 @@
+diff --git a/Source/NSRunLoop.m b/Source/NSRunLoop.m
+--- a/Source/NSRunLoop.m
++++ b/Source/NSRunLoop.m
+@@ -1249,7 +1305,13 @@ updateTimer(NSTimer *t, NSDate *d, NSTimeInterval now)
+                 }
+               else
+                 {
+-                  timeout_ms = (int)(ti * 1000.0);
++                  /* Round the wait up: truncating a wait of less than a
++                   * millisecond to zero makes the loop poll without waiting
++                   * and run again at once, so it spins at full speed until
++                   * the date is reached.  A timer therefore costs a burst of
++                   * busy looping before each time it fires.
++                   */
++                  timeout_ms = (int)ceil(ti * 1000.0);
+                 }
+             }
+ 

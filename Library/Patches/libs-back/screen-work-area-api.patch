@@ -1,0 +1,177 @@
+diff --git a/Headers/x11/XGServer.h b/Headers/x11/XGServer.h
+index c57a7bb..36b0eab 100644
+--- a/Headers/x11/XGServer.h
++++ b/Headers/x11/XGServer.h
+@@ -57,6 +57,7 @@ typedef struct MonitorDevice {
+   NSWindowDepth depth;
+   NSSize resolution;
+   NSRect frame;
++  NSRect workArea;
+ } MonitorDevice;
+ 
+ @interface XGServer : GSDisplayServer
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+index 9839269..4d7bc1d 100644
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -4524,7 +4566,7 @@ _screenSize(Display *dpy, int screen)
+  * Returns nil if no information is available.
+  */
+ static NSArray *
+-_workAreas(Display *dpy, Window root)
++_workAreas(Display *dpy, Window root, int screenHeight)
+ {
+   Atom		workarea_atom;
+   Atom		type;
+@@ -4580,10 +4622,7 @@ _workAreas(Display *dpy, Window root)
+       frame.size.width = (uint32_t)*items++;
+       frame.size.height = (uint32_t)*items++;
+       // X coordinates need to be flipped to OpenStep coordinates
+-      if (frame.origin.y > 0.0)
+-	{
+-	  frame.origin.y = 0.0;
+-	}
++      frame.origin.y = screenHeight - frame.origin.y - frame.size.height;
+       [array addObject: [NSValue valueWithRect: frame]];
+     }
+   XFree(data);
+@@ -4604,8 +4643,8 @@ _workAreas(Display *dpy, Window root)
+ - (NSArray *)screenList
+ {
+   Window        root = [self xDisplayRootWindow];
+-  NSArray	*workAreas = _workAreas(dpy, root);
+   xScreenSize = _screenSize(dpy, defScreen);
++  NSArray	*workAreas = _workAreas(dpy, root, xScreenSize.height);
+ 
+   monitorsCount = 0;
+   if (monitors != NULL)
+@@ -4650,27 +4689,26 @@ _workAreas(Display *dpy, Window root)
+                   monitors[mi].resolution
+ 		    = [self resolutionForScreen: defScreen];
+ 
+-		  /* We can only use the work area provided by _NET_WORKAREA
+-		   * if we have a single screen/monitor, because that property
+-		   * refers to coordinates in the composite display formed by
+-		   * all the available monitors.
++		  /* Transform coordinates from Xlib (flipped)
++		   * to OpenStep (unflipped).
++		   * Windows and screens should have the same
++		   * coordinate system.
+ 		   */
++		  monitors[mi].frame =
++		    NSMakeRect(crtc_info->x,
++		      xScreenSize.height - crtc_info->height - crtc_info->y,
++		      crtc_info->width,
++		      crtc_info->height);
++		  /* The WM work area (_NET_WORKAREA) is only valid for the
++		   * composite display, not per-monitor.  Use it for the
++		   * single-monitor case; otherwise default to the full frame. */
+ 		  if (1 == monitorsCount && workAreas != nil)
+ 		    {
+-		      monitors[0].frame = [[workAreas firstObject] rectValue];
++		      monitors[mi].workArea = [[workAreas firstObject] rectValue];
+ 		    }
+ 		  else
+ 		    {
+-		      /* Transform coordinates from Xlib (flipped)
+-		       * to OpenStep (unflipped). 
+-		       * Windows and screens should have the same
+-		       * coordinate system.
+-		       */
+-		      monitors[mi].frame =
+-			NSMakeRect(crtc_info->x,
+-			  xScreenSize.height - crtc_info->height - crtc_info->y,
+-			  crtc_info->width,
+-			  crtc_info->height);
++		      monitors[mi].workArea = monitors[mi].frame;
+ 		    }
+                   /* Add monitor ID (index in monitors array).
+                    * Put primary monitor ID at index 0 since
+@@ -4720,7 +4758,11 @@ _workAreas(Display *dpy, Window root)
+ 
+   if (workAreas != nil)
+     {
+-      monitors[0].frame = [[workAreas firstObject] rectValue];
++      monitors[0].workArea = [[workAreas firstObject] rectValue];
++    }
++  else
++    {
++      monitors[0].workArea = monitors[0].frame;
+     }
+   return [NSArray arrayWithObject: [NSNumber numberWithInt: defScreen]];
+ }
+@@ -4838,6 +4880,24 @@ _workAreas(Display *dpy, Window root)
+   return boundsRect;
+ }
+ 
++- (NSRect) workAreaForScreen: (int)screen
++{
++  NSRect workRect = NSZeroRect;
++
++  if (screen < 0 || screen >= monitorsCount)
++    {
++      NSLog(@"Invalidparam: no screen %d", screen);
++      return NSZeroRect;
++    }
++
++  if (monitors != NULL)
++    {
++      workRect = monitors[screen].workArea;
++    }
++
++  return workRect;
++}
++
+ - (NSImage *) iconTileImage
+ {
+   Window win;
+diff --git a/Source/headless/HeadlessServer.m b/Source/headless/HeadlessServer.m
+index 4d6aa1a..4f4b163 100644
+--- a/Source/headless/HeadlessServer.m
++++ b/Source/headless/HeadlessServer.m
+@@ -70,6 +70,11 @@ terminate(int sig)
+  return NSMakeRect(0, 0, 400, 400);
+ }
+ 
++- (NSRect) workAreaForScreen: (int)screen
++{
++  return [self boundsForScreen: screen];
++}
++
+ - (NSWindowDepth) windowDepthForScreen: (int) screen_num
+ {
+   return 0;
+diff --git a/Source/wayland/WaylandServer.m b/Source/wayland/WaylandServer.m
+index 7d57d74..f5d7072 100644
+--- a/Source/wayland/WaylandServer.m
++++ b/Source/wayland/WaylandServer.m
+@@ -308,6 +308,11 @@ NSToWayland(struct window *window, int ns_y)
+   return NSZeroRect;
+ }
+ 
++- (NSRect)workAreaForScreen:(int)screen
++{
++  return [self boundsForScreen: screen];
++}
++
+ - (NSWindowDepth)windowDepthForScreen:(int)screen
+ {
+   NSDebugLog(@"windowDepthForScreen: %d", screen);
+diff --git a/Source/win32/WIN32Server.m b/Source/win32/WIN32Server.m
+index 537ecad..3bd1715 100644
+--- a/Source/win32/WIN32Server.m
++++ b/Source/win32/WIN32Server.m
+@@ -501,6 +501,13 @@ LRESULT CALLBACK windowEnumCallback(HWND hwnd, LPARAM lParam)
+   return NSZeroRect;
+ }
+ 
++- (NSRect) workAreaForScreen: (int)screen
++{
++  /* On Win32, the work area per monitor is available via MONITORINFO.rcWork.
++   * For now, fall back to boundsForScreen which is the full monitor rect. */
++  return [self boundsForScreen: screen];
++}
++
+ - (HMONITOR) monitorHandleForScreen: (int)screen
+ {
+   if (screen < [monitorInfo count])
