@@ -41,3 +41,4 @@ xdotool
 alsa-lib
 alsa-seq-server
 alsa-utils
+NextBSD-bootloader-gershwin
