@@ -249,12 +249,25 @@ index 781758a0a..cec908f20 100644
    return result;
 diff --git a/Tests/base/NSFileManager/copySymlinkAttributes.m b/Tests/base/NSFileManager/copySymlinkAttributes.m
 new file mode 100644
-index 000000000..c6ff61159
+index 000000000..8732815c9
 --- /dev/null
 +++ b/Tests/base/NSFileManager/copySymlinkAttributes.m
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,164 @@
 +#import "Testing.h"
 +#import <Foundation/Foundation.h>
++
++#if defined(_WIN32)
++
++int main()
++{
++  START_SET("copySymlinkAttributes")
++  SKIP("POSIX symbolic links are not available on this platform")
++  END_SET("copySymlinkAttributes")
++  return 0;
++}
++
++#else
++
 +#include <sys/types.h>
 +#include <sys/stat.h>
 +#include <sys/time.h>
@@ -402,3 +415,5 @@ index 000000000..c6ff61159
 +  [arp release];
 +  return 0;
 +}
++
++#endif
