@@ -250,10 +250,10 @@ diff --git a/Source/NSFileManager.m b/Source/NSFileManager.m
    return result;
 diff --git a/Tests/base/NSFileManager/copySymlinkAttributes.m b/Tests/base/NSFileManager/copySymlinkAttributes.m
 new file mode 100644
-index 000000000..190103648
+index 000000000..c6ff61159
 --- /dev/null
 +++ b/Tests/base/NSFileManager/copySymlinkAttributes.m
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,149 @@
 +#import "Testing.h"
 +#import <Foundation/Foundation.h>
 +#include <sys/types.h>
@@ -381,6 +381,13 @@ index 000000000..190103648
 +  PASS_EQUAL(linkContent(dst), outside,
 +    "the copied link points where the original did")
 +
++  START_SET("-linkPath:toPath:handler:")
++  dst = [root stringByAppendingPathComponent: @"hardlink"];
++  if (link([file fileSystemRepresentation],
++    [dst fileSystemRepresentation]) != 0)
++    {
++      SKIP("hard links are not supported here")
++    }
 +  resetFile(outside);
 +  resetFile(file);
 +  dst = [root stringByAppendingPathComponent: @"link1"];
@@ -390,6 +397,7 @@ index 000000000..190103648
 +    "-linkPath:toPath:handler: leaves the target of an absolute link alone")
 +  PASS_EQUAL(linkContent([dst stringByAppendingPathComponent: @"abs"]),
 +    outside, "the linked tree's absolute link points where the original did")
++  END_SET("-linkPath:toPath:handler:")
 +
 +  [mgr removeFileAtPath: root handler: nil];
 +  [arp release];
