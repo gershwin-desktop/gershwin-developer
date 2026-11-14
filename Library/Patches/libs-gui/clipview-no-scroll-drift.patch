@@ -1,0 +1,23 @@
+diff --git a/Source/NSClipView.m b/Source/NSClipView.m
+index 2eb919d0e..bba13f9d4 100644
+--- a/Source/NSClipView.m
++++ b/Source/NSClipView.m
+@@ -421,6 +421,18 @@ static inline NSRect integralRect (NSRect rect, NSView *view)
+       new.y = NSMaxY(documentFrame) - _bounds.size.height;
+     }
+ 
++  /* Leave a scroll that does not move anything alone.  The rounding below
++     is relative to this view's position in the window, which itself moves by
++     a fraction of a point whenever the scroll view is laid out again at a
++     fractional scale factor; re-rounding the origin we already have then
++     nudges the content a little further every pass, and a column being
++     resized drifts the rows up the view. */
++  if (fabs(new.x - _bounds.origin.x) < 0.001
++      && fabs(new.y - _bounds.origin.y) < 0.001)
++    {
++      return _bounds.origin;
++    }
++
+   /* Make it an integer coordinate in device space - this is to make
+      sure that when the coordinates are changed and we need to copy to
+      do the scrolling, the difference is an integer and so we can copy

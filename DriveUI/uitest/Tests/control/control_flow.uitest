@@ -25,4 +25,8 @@ else
   log "dialog open"
 end
 
+# ${testdir} is the folder of the script itself, so a test finds the files
+# shipped beside it wherever the checkout lives.
+shell "test -f ${testdir}/control_flow.uitest"
+
 log "control flow done"

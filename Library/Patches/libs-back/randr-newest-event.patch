@@ -1,0 +1,30 @@
+diff --git a/Source/x11/XGServerEvent.m b/Source/x11/XGServerEvent.m
+index 86ebac0..ac52bef 100644
+--- a/Source/x11/XGServerEvent.m
++++ b/Source/x11/XGServerEvent.m
+@@ -1922,11 +1922,22 @@ posixFileDescriptor: (NSPosixFileDescriptor*)fileDescriptor
+         if (xEvent.type == randr_event_type
+             && (xEvent.xconfigure.window == RootWindow(dpy, defScreen)))
+           {
+-            // Check if other RandR events are waiting in the queue.
++            /* Check if other RandR events are waiting in the queue and
++             * collapse the burst onto the newest one: an output switched
++             * off at the old size is followed by the screen shrinking, and
++             * Xlib's idea of the screen size (DisplayWidth/DisplayHeight)
++             * must come from the last event, not the first.
++             */
+             XSync(dpy, 0);
+-            while (XCheckTypedEvent(dpy, randr_event_type, &xEvent)) {;}
+-                    
++            while (XCheckTypedEvent(dpy, randr_event_type, &xEvent))
++              {
++                *event = xEvent;
++              }
++
+             XRRUpdateConfiguration(event);
++            /* Re-read monitors and the root size before the gui rebuilds
++             * its NSScreens from them. */
++            [self screenList];
+             // Regenerate NSScreens
+             [NSScreen resetScreens];
+             // Notify application about screen parameters change

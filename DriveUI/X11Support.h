@@ -21,6 +21,34 @@
 // offset, releasing over the end position (moving windows, sliders,
 // scrollbars, drag-and-drop).
 + (void)simulateDragBy:(NSPoint)delta;
+/* The same drag, resting at the destination for `hold` before the button
+ * comes up - long enough, say, for a folder there to spring open. */
++ (void)simulateDragBy:(NSPoint)delta holdAtEnd:(NSTimeInterval)hold;
+
+// Pointer building blocks for a gesture spread over several commands, such as
+// holding a window at a screen edge while its snap preview is checked.  All
+// coordinates are X11 root coordinates (origin top-left).
++ (NSPoint)pointerLocation;
+// Move the pointer in `steps` even motions from where it is, so an application
+// tracking a drag sees the way, not just the destination.
++ (void)movePointerTo:(NSPoint)point steps:(int)steps;
+// Press or release a button in the X server (XTest), where the state stays
+// until released, across commands and processes.  NO without XTest.
++ (BOOL)setButton:(int)button pressed:(BOOL)pressed;
+
+// On-screen rectangle of a top-level window (the window manager's frame for a
+// decorated window) in root coordinates.  NO if the window is gone.
++ (BOOL)geometryOfWindow:(unsigned long)xid x:(int *)x y:(int *)y
+                   width:(int *)width height:(int *)height;
+// Middle of the titlebar of a decorated top-level window: the band between
+// the top of the window manager's frame and the client window inside it.
+// NO for a window without such a band (undecorated, or not framed).
++ (BOOL)titlebarPointOfWindow:(unsigned long)xid point:(NSPoint *)point;
+// Buttons of a decorated window's titlebar, as published by the window
+// manager (_WINDOW_TITLEBAR_BUTTONS): button name ("close", "minimize",
+// "zoom") -> NSValue rect in root coordinates.  nil when the window manager
+// publishes none for this window.
++ (NSDictionary *)titlebarButtonsOfWindow:(unsigned long)xid;
 
 // Emit `count` wheel steps at the current pointer position.  direction is one
 // of "up"/"down"/"left"/"right" (X buttons 4/5/6/7).
@@ -85,6 +113,18 @@
 // Used by the UI tests to verify that an activation request actually took
 // effect, instead of assuming the WM honoured it.
 + (BOOL)isWindowActive:(unsigned long)xid;
+
+/* The X windows of one process and the subwindows inside them, with absolute
+ * geometry.  A subwindow (e.g. the one an OpenGL view draws into) that lies
+ * over a control takes the clicks aimed at that control, and nothing in the
+ * widget tree shows it, so a failing test has to be able to print this. */
++ (NSString *)windowTreeDescriptionForPID:(int)pid;
+
+/* The process owning the window under a screen point, or 0 when it cannot be
+ * told.  X delivers a click to whatever window lies under the pointer, so a
+ * control whose centre belongs to another process (the Dock over a window,
+ * a panel of another application) cannot be clicked at all. */
++ (int)pidOwningWindowAtPoint:(NSPoint)point;
 
 // Resolve the absolute path of an executable by name from the PATH
 // environment variable.  System helper tools (xdotool, ffmpeg, ...) live at

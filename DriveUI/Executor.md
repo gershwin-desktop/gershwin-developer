@@ -139,9 +139,11 @@ wait until window "About This Computer"
 activate application "Workspace"
 ```
 
-Resolves the app by name (matching its running process) and raises its
-frontmost window if it has one.  Applications that have no clickable window,
-such as a desktop, are still selected as the target for later commands.
+Resolves the app by name (matching its running process), asks the window
+manager to activate its frontmost window that can take the keyboard, and waits
+until the app has it.  Nothing is clicked, so no widget of the app is touched
+(a click could hit a Dock icon and launch something).  Applications without
+such a window are still selected as the target for later commands.
 
 ### target application
 
@@ -150,10 +152,10 @@ target application "Menu"
 ```
 
 Resolves the app by name and makes it the target of subsequent commands
-without raising it.  Unlike `activate application`, it performs no click, so
-it is the right choice when raising the app's window would disturb on-screen
+without raising it.  Unlike `activate application`, it leaves the keyboard
+where it is, so it is the right choice when moving it would disturb on-screen
 state - e.g. retargeting to Menu.app while its Action Search box is open,
-which clicking the menu bar would dismiss.
+which loses its results when the focus moves.
 
 ### focus window
 
@@ -221,6 +223,75 @@ drag row "Document" by 0 60
 
 Presses button 1 at the widget and drags it by the given pixel offset
 (moving windows and sliders, adjusting scrollbars, drag-and-drop).
+
+```text
+drag "report.txt" onto "Archive" in window "Documents"
+```
+
+Presses button 1 on the first widget and releases it over the centre of the
+second - the gesture that drops a file on a folder.  `hold <duration>` rests
+on the second widget that long before letting go, long enough for a folder
+there to spring open:
+
+```text
+drag "report.txt" onto "Archive" in window "Documents" hold 1500ms
+```
+  Naming the destination
+instead of measuring an offset keeps a script independent of icon size, grid
+spacing and window placement.  With `onto`, the second quoted string is the
+destination, so an `in window` clause takes the third.
+
+A drag holds the button down in the X server (XTest), exactly like a pointer
+does.  A synthetic press would leave the server's button state up, and the
+application would see the motion as plain mouse movement rather than a drag.
+
+### Window decorations
+
+```text
+drag titlebar "Notes" by 200 60
+drag titlebar "Notes" to left edge hold 1s
+
+grab titlebar "Notes"
+move pointer to left edge
+wait until xwindow "Snap Preview" x = 0
+move pointer by 400 50
+release pointer
+```
+
+The titlebar is drawn by the window manager, so it is in no application's
+widget tree; `titlebar "Title"` finds it through the X display by the window's
+title and presses in its middle, whatever height the theme and scale factor
+give it.  `drag titlebar` is one gesture: press, move `by <dx> <dy>` or `to
+left|right|top|bottom edge` (the pointer keeps its other coordinate), rest
+for the optional `hold` time, release.
+
+```text
+click titlebar "Notes" zoom
+click titlebar "Notes" minimize
+click titlebar "Notes" close
+```
+
+`click titlebar` clicks one of the titlebar buttons (`close`, `minimize` or
+`zoom`; a trailing `button` is allowed).  They are drawn by the theme inside
+the titlebar and are no windows of their own; the window manager publishes
+where they are on the titlebar window (`_WINDOW_TITLEBAR_BUTTONS`), and the
+click fails when a window has no such button.
+
+`grab titlebar` presses and keeps the button down, `move pointer` moves it
+while it is down, and `release pointer` lets go, so a script can check what
+the window manager shows in the middle of a drag - a snap preview, say.  If a
+script ends between `grab` and `release`, the button is released for it.
+
+A window's on-screen frame, titlebar included, can be compared and recorded
+like its count, in pixels from the top-left corner of the screen:
+
+```text
+assert xwindow "Notes" width = 400
+wait until xwindow "Notes" x > 100
+setcount WIDTH = width xwindow "Notes"
+```
+
+The measures are `count`, `x`, `y`, `width` and `height`.
 
 ### type
 
@@ -330,6 +401,19 @@ capture screenshot "workspace.png"
 
 Captures the whole screen to a PNG.  Without a filename the screenshot is
 written to `/tmp/run_uitest-<timestamp>.png`.
+
+### shell
+
+```text
+shell "rm -rf /tmp/fixture && mkdir -p /tmp/fixture/Target"
+shell "test -e /tmp/fixture/Target/moved.txt"
+```
+
+Runs a command with `/bin/sh -c` in the harness itself, as the user running
+the test, and waits for it to finish.  A non-zero exit fails the step.  Use it
+to set up and tear down fixtures, and to check what a UI action did to the
+file system.  Unlike `run`, which types into the application's Run dialog and
+cannot see what got launched, `shell` knows whether the command succeeded.
 
 ### log
 

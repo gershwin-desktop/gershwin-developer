@@ -1,0 +1,38 @@
+diff --git a/Source/GSToolTips.m b/Source/GSToolTips.m
+index c2b5aee3c..2ecd4905f 100644
+--- a/Source/GSToolTips.m
++++ b/Source/GSToolTips.m
+@@ -582,6 +582,8 @@ static BOOL		restoreMouseMoved;
+   NSString		*toolTipString;
+   NSAttributedString	*toolTipText = nil;
+   NSSize		textSize;
++  NSSize		windowSize;
++  CGFloat		scale;
+   NSPoint		mouseLocation = [NSEvent mouseLocation];
+   NSRect		visible;
+   NSRect		rect;
+@@ -655,12 +657,22 @@ static BOOL		restoreMouseMoved;
+   textSize.width += 1;
+   textSize.height += 1;
+   
++  /* The text and the 2 point margin GSTTView leaves around it are in
++   * points, but the window frame is in device pixels, like the mouse
++   * location and the visible frame used below.  Scaling only the text
++   * leaves the border too thin, so the text rect comes out narrower than
++   * the text and its end wraps onto a line that is clipped away.
++   */
++  scale = [window userSpaceScaleFactor];
++  windowSize = NSMakeSize((textSize.width + 4) * scale,
++    (textSize.height + 4) * scale);
++
+   /* Create window just off the current mouse position
+    * Constrain it to be on screen, shrinking if necessary.
+    */
+   rect = NSMakeRect(mouseLocation.x + 8,
+-    mouseLocation.y - 16 - (textSize.height+3),
+-    textSize.width + 4, textSize.height + 4);
++    mouseLocation.y - 15 - windowSize.height,
++    windowSize.width, windowSize.height);
+   visible = [[NSScreen mainScreen] visibleFrame];
+   if (NSMaxY(rect) > NSMaxY(visible))
+     {
