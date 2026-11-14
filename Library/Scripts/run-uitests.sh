@@ -107,16 +107,14 @@ restore_appkit_bundles()
   fi
 }
 
-# Run a command as another user.  Prefer sudo; CI containers and BSD hosts
-# run as root without sudo installed, so fall back to su -m there.  Requires
-# root (or passwordless sudo) either way.
+# Run a command as another user.  As root use su -m: sudo gives the command a
+# core size limit of 0 that it cannot raise again, so on the Arch job (sudo
+# comes with base-devel) no test-user process could ever leave a core.  su -m
+# keeps the unlimited limit set above, as on the Debian and BSD jobs, which
+# have no sudo.  sudo is only for a developer running this without root.
 run_as_user()
 {
   _u="$1"; shift
-  if command -v sudo >/dev/null 2>&1; then
-    sudo -u "$_u" "$@"
-    return $?
-  fi
   if [ "$(id -u)" = "0" ]; then
     # su -c takes a single command string; quote each argument.
     _cmd=""
@@ -125,6 +123,10 @@ run_as_user()
       _cmd="$_cmd '$_esc'"
     done
     su -m "$_u" -c "$_cmd"
+    return $?
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u "$_u" "$@"
     return $?
   fi
   echo "error: need root or sudo to run as $_u" >&2
@@ -181,7 +183,7 @@ session_run()
         FONTCONFIG_PATH=/System/Library/Preferences \
         PATH=/System/Library/Tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         "$@"
-    ' _ "$UITEST_ISOLATED_DISPLAY" "/home/$UITEST_ISOLATED_USER" "$@"
+    ' _ "$UITEST_ISOLATED_DISPLAY" "/home/$UITEST_ISOLATED_USER" $DIAG_ENV "$@"
   else
     "$@"
   fi
@@ -196,6 +198,14 @@ session_run()
 # core gives the stack.  Opt-in because it changes a system-wide kernel
 # setting, which a developer's machine must not get as a side effect.
 CORE_DIR=/tmp/uitest-cores
+
+# What an application a test launched wrote before it died is the only other
+# record of why it died; the harness throws that output away unless
+# UITEST_APP_LOG_DIR names a directory for it.
+APP_LOG_DIR=/tmp/uitest-app-logs
+
+# Environment for everything session_run starts (VAR=value words).
+DIAG_ENV=""
 
 as_root()
 {
@@ -212,8 +222,11 @@ setup_core_dumps()
     echo "error: UITEST_CRASH_DIAGNOSTICS=1 needs gdb to backtrace cores" >&2
     exit 1
   }
-  as_root rm -rf "$CORE_DIR"
-  as_root mkdir -m 1777 "$CORE_DIR" || exit 1
+  as_root rm -rf "$CORE_DIR" "$APP_LOG_DIR"
+  as_root mkdir -m 1777 "$CORE_DIR" "$APP_LOG_DIR" || exit 1
+  # An uncaught exception makes a GNUstep process exit(1) without a core
+  # unless CRASH_ON_ABORT asks base to abort() instead.
+  DIAG_ENV="CRASH_ON_ABORT=YES UITEST_APP_LOG_DIR=$APP_LOG_DIR"
   case "$(uname -s)" in
     Linux)
       # %E is the executable's path with '/' written as '!', so the report
@@ -257,7 +270,8 @@ setup_xfd_watch()
 }
 
 # Backtrace every core the suite left behind; crash-backtraces.txt next to the
-# JUnit report puts them into the CI artifact as well.
+# JUnit report puts them into the CI artifact as well, and so do the app-*.log
+# files with the output of the applications the tests launched.
 report_cores()
 {
   _bt="$(dirname "$JUNIT_OUTPUT")/crash-backtraces.txt"
@@ -281,6 +295,10 @@ report_cores()
       as_root gdb -q -batch -ex 'thread apply all bt 40' ${_exe:+"$_exe"} \
         --core="$_core" 2>&1 | head -300
     } | tee -a "$_bt"
+  done
+  for _log in "$APP_LOG_DIR"/*.log; do
+    [ -f "$_log" ] || continue
+    cp "$_log" "$(dirname "$JUNIT_OUTPUT")/app-$(basename "$_log")"
   done
 }
 
@@ -358,6 +376,12 @@ if [ "$UITEST_SESSION" = "isolated" ]; then
   session_run env WS_PRELOAD="$WS_PRELOAD" sh -c '
     . /System/Library/Makefiles/GNUstep.sh
     eval $(dbus-launch --sh-syntax)
+    # GTK and Qt programs show their menus in Menu (Menu/ToolkitModules)
+    export GTK_PATH=/System/Library/Libraries/appmenu-do${GTK_PATH:+:$GTK_PATH} GTK_MODULES=gtk-appmenu-do
+    export QT_PLUGIN_PATH=/System/Library/Libraries/appmenu-do${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
+    # gad first: it only starts the menu module and leaves the theme to the next name
+    case ":$QT_QPA_PLATFORMTHEME:" in *:gad:*) ;; *) export QT_QPA_PLATFORMTHEME=gad${QT_QPA_PLATFORMTHEME:+:$QT_QPA_PLATFORMTHEME} ;; esac
+    export GIO_EXTRA_MODULES=/System/Library/Libraries/appmenu-do/gio/modules${GIO_EXTRA_MODULES:+:$GIO_EXTRA_MODULES}
     /System/Library/CoreServices/Applications/Menu.app/Menu >/tmp/uitest_menu.log 2>&1 &
     /System/Library/CoreServices/Applications/WindowManager.app/WindowManager >/tmp/uitest_wm.log 2>&1 &
     ${WS_PRELOAD:+env LD_PRELOAD=$WS_PRELOAD} /System/Applications/Workspace.app/Workspace >/tmp/uitest_ws.log 2>&1 &
@@ -483,6 +507,14 @@ fi
 if [ "$rc" -ne 0 ]; then
   print_session_logs
 fi
+
+# The tails above rarely reach back to the failing test; keep the whole logs
+# beside the JUnit report, which CI uploads as an artifact.
+for _log in /tmp/uitest_ws.log /tmp/uitest_workspace.log /tmp/uitest_menu.log /tmp/uitest_wm.log; do
+  [ -f "$_log" ] || continue
+  mkdir -p "$(dirname "$JUNIT_OUTPUT")"
+  cp "$_log" "$(dirname "$JUNIT_OUTPUT")/"
+done
 
 restore_appkit_bundles
 

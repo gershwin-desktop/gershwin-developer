@@ -1,0 +1,24 @@
+diff --git a/Source/NSMenuView.m b/Source/NSMenuView.m
+--- a/Source/NSMenuView.m
++++ b/Source/NSMenuView.m
+@@ -1878,6 +1917,20 @@ static float menuBarHeight = 0.0;
+    */
+   indexOfActionToExecute = _highlightedItemIndex;
+ 
++  /* An item whose submenu has just been attached keeps the highlight while
++   * the pointer is away from the menu, so that the pointer can travel to
++   * that submenu without the submenu closing on the way.  Releasing the
++   * mouse somewhere else entirely would then carry out that item, which the
++   * user never chose. */
++  if (indexOfActionToExecute >= 0
++    && [self indexOfItemAtPoint:
++               [self convertPoint: [_window mouseLocationOutsideOfEventStream]
++                         fromView: nil]] == -1)
++    {
++      [self setHighlightedItemIndex: -1];
++      indexOfActionToExecute = -1;
++    }
++
+   // remove transient menus. --------------------------------------------
+   {
+     NSMenu *currentMenu = _attachedMenu;

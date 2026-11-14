@@ -1,0 +1,21 @@
+diff --git a/Source/GSTheme.m b/Source/GSTheme.m
+index 9e8eb3ed8..6c9d892ad 100644
+--- a/Source/GSTheme.m
++++ b/Source/GSTheme.m
+@@ -405,6 +405,16 @@ typedef	struct {
+ 	       selector: @selector(preferenceDidChange:)
+ 		   name: @"GSThemePreferenceDidChangeNotification"
+ 		 object: nil];
++      /* Watch the user defaults from the start.  +setTheme: also does this,
++       * but only on a change of theme, so an application that starts with
++       * the default theme would never be watching and would keep that theme
++       * for the rest of its run however the GSTheme default changes.
++       */
++      [[NSNotificationCenter defaultCenter]
++	addObserver: self
++	   selector: @selector(defaultsDidChange:)
++	       name: NSUserDefaultsDidChangeNotification
++	     object: nil];
+       /* Establish the theme specified by the user defaults (if any);
+        */
+       [self defaultsDidChange: nil];

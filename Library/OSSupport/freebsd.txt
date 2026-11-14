@@ -2,12 +2,12 @@ jpeg-turbo
 tiff
 png
 lcms2
-ImageMagick7
 libxml2
 libxslt
 gnutls
 libffi
 icu
+pkgconf
 cairo
 libXft
 flite
@@ -27,10 +27,12 @@ xcb-util
 xcb-util-wm
 xrandr
 libXrandr
+libXcursor
 wget
 curl
 cups
 libXcomposite
+libXtst
 squashfs-tools-ng
 fusefs-squashfuse
 autoconf
@@ -42,3 +44,6 @@ freerdp
 ffmpeg
 sqlite3
 xdotool
+alsa-lib
+alsa-seq-server
+alsa-utils

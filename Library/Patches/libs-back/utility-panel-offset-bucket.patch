@@ -1,0 +1,66 @@
+diff --git a/Headers/x11/XGGeneric.h b/Headers/x11/XGGeneric.h
+--- a/Headers/x11/XGGeneric.h
++++ b/Headers/x11/XGGeneric.h
+@@ -199,6 +199,13 @@ typedef struct {
+   BOOL	known;	// obtained from Reparent event or just guessed?
+ } Offsets;
+ 
++/* Mask applied to a window_style to pick its Offsets bucket.  Includes
++ * NSUtilityWindowMask (bit 4) so a utility panel is never folded into the
++ * bucket of an ordinary window sharing NSTitledWindowMask/NSClosable
++ * WindowMask/NSMiniaturizableWindowMask/NSResizableWindowMask (bits 0-3).
++ */
++#define GSOffsetStyleMask 31
++
+ /*
+  * Structure containing ivars that are common to all X backend contexts.
+  */
+@@ -239,7 +246,14 @@ struct XGGeneric {
+   int			rMouseMask;
+   Window		appRootWindow;
+   void			*cachedWindow;	// last gswindow_device_t used.
+-  Offsets		offsets[16];
++  /* Indexed by (window_style & GSOffsetStyleMask).  Widened from 16 to 32
++   * entries so a utility panel (NSUtilityWindowMask, bit 4) no longer
++   * shares its bucket with an ordinary window of the same low four style
++   * bits; the window manager may give the two different title bar
++   * heights, and mixing them into one cached offset left the shorter one
++   * unpainted after a resize.
++   */
++  Offsets		offsets[32];
+   Atom atoms[sizeof(atom_names)/sizeof(char*)];
+ };
+ 
+
+diff --git a/Source/x11/XGServerEvent.m b/Source/x11/XGServerEvent.m
+--- a/Source/x11/XGServerEvent.m
++++ b/Source/x11/XGServerEvent.m
+@@ -1771,7 +1769,14 @@ posixFileDescriptor: (NSPosixFileDescriptor*)fileDescriptor
+                 b -= (cWin->xframe.size.height + t);
+               } /* generic.flags.doubleParentWindow */
+ 
+-            o = generic.offsets + (cWin->win_attrs.window_style & 15);
++            /* Bucket by GSOffsetStyleMask (includes NSUtilityWindowMask),
++             * not just the low four style bits: otherwise a utility panel
++             * with a shorter, WM-drawn title bar shares its bucket with
++             * an ordinary window and the mismatch below is only logged,
++             * never corrected, leaving the panel's content painted with
++             * the wrong (too large) top offset after a later resize.
++             */
++            o = generic.offsets + (cWin->win_attrs.window_style & GSOffsetStyleMask);
+             if (o->known == NO)
+               {
+                 o->l = l;
+
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -2282,7 +2324,7 @@ _get_next_prop_new_event(Display *display, XEvent *event, char *arg)
+      a window that has been reparented by the WM. Otherwise we have to
+      guess.
+   */
+-  o = generic.offsets + (style & 15);
++  o = generic.offsets + (style & GSOffsetStyleMask);
+   if (o->known == YES)
+     {
+       *l = o->l;

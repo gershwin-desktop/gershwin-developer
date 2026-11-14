@@ -1,0 +1,80 @@
+diff --git a/Headers/AppKit/NSTableColumn.h b/Headers/AppKit/NSTableColumn.h
+index a3c149e14..a66e10970 100644
+--- a/Headers/AppKit/NSTableColumn.h
++++ b/Headers/AppKit/NSTableColumn.h
+@@ -62,9 +62,9 @@ APPKIT_EXPORT_CLASS
+ {
+   id _identifier;
+   NSTableView *_tableView;
+-  float _width;
+-  float _min_width;
+-  float _max_width;
++  CGFloat _width;
++  CGFloat _min_width;
++  CGFloat _max_width;
+   NSUInteger _resizing_mask;
+   BOOL _is_resizable;
+   BOOL _is_editable;
+diff --git a/Source/NSTableColumn.m b/Source/NSTableColumn.m
+index 5e8418e09..350c2a629 100644
+--- a/Source/NSTableColumn.m
++++ b/Source/NSTableColumn.m
+@@ -508,9 +508,13 @@ to YES. */
+     {
+       [aCoder encodeObject: _identifier];
+       
+-      [aCoder encodeValueOfObjCType: @encode(float) at: &_width];
+-      [aCoder encodeValueOfObjCType: @encode(float) at: &_min_width];
+-      [aCoder encodeValueOfObjCType: @encode(float) at: &_max_width];
++      float width = _width;
++      float minWidth = _min_width;
++      float maxWidth = _max_width;
++
++      [aCoder encodeValueOfObjCType: @encode(float) at: &width];
++      [aCoder encodeValueOfObjCType: @encode(float) at: &minWidth];
++      [aCoder encodeValueOfObjCType: @encode(float) at: &maxWidth];
+       [aCoder encodeValueOfObjCType: @encode(BOOL) at: &_is_resizable];
+       [aCoder encodeValueOfObjCType: @encode(BOOL) at: &_is_editable];
+       
+@@ -596,6 +600,9 @@ to YES. */
+     {
+       int version = [aDecoder versionForClassName: 
+ 				  @"NSTableColumn"];
++      float width;
++      float minWidth;
++      float maxWidth;
+       
+       self = [super init];
+       if (!self)
+@@ -604,9 +611,12 @@ to YES. */
+       if (version >= 2)
+         {
+           _identifier = RETAIN([aDecoder decodeObject]);
+-          [aDecoder decodeValueOfObjCType: @encode(float) at: &_width];
+-          [aDecoder decodeValueOfObjCType: @encode(float) at: &_min_width];
+-          [aDecoder decodeValueOfObjCType: @encode(float) at: &_max_width];
++          [aDecoder decodeValueOfObjCType: @encode(float) at: &width];
++          [aDecoder decodeValueOfObjCType: @encode(float) at: &minWidth];
++          [aDecoder decodeValueOfObjCType: @encode(float) at: &maxWidth];
++          _width = width;
++          _min_width = minWidth;
++          _max_width = maxWidth;
+           [aDecoder decodeValueOfObjCType: @encode(BOOL) at: &_is_resizable];
+           [aDecoder decodeValueOfObjCType: @encode(BOOL) at: &_is_editable];
+           _headerCell = RETAIN([aDecoder decodeObject]);
+@@ -629,9 +639,12 @@ to YES. */
+           _identifier = RETAIN([aDecoder decodeObject]);
+           _headerCell = RETAIN([aDecoder decodeObject]);
+           _dataCell   = RETAIN([aDecoder decodeObject]);
+-          [aDecoder decodeValueOfObjCType: @encode(float) at: &_width];
+-          [aDecoder decodeValueOfObjCType: @encode(float) at: &_min_width];
+-          [aDecoder decodeValueOfObjCType: @encode(float) at: &_max_width];
++          [aDecoder decodeValueOfObjCType: @encode(float) at: &width];
++          [aDecoder decodeValueOfObjCType: @encode(float) at: &minWidth];
++          [aDecoder decodeValueOfObjCType: @encode(float) at: &maxWidth];
++          _width = width;
++          _min_width = minWidth;
++          _max_width = maxWidth;
+           [aDecoder decodeValueOfObjCType: @encode(BOOL) at: &_is_resizable];
+           [aDecoder decodeValueOfObjCType: @encode(BOOL) at: &_is_editable];
+         }

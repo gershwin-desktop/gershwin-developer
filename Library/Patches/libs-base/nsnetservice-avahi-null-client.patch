@@ -1,0 +1,154 @@
+diff --git a/Source/GSAvahiNetService.m b/Source/GSAvahiNetService.m
+index f844d430d..9cd285474 100644
+--- a/Source/GSAvahiNetService.m
++++ b/Source/GSAvahiNetService.m
+@@ -1233,6 +1233,14 @@ didUpdateRecordData: (id)data
+ {
+   if (_serviceState < GSNetServiceResolving)
+     {
++      if (NULL == _client)
++        {
++          /* No client means no avahi-daemon or system bus; avahi asserts
++           * on a NULL client, so report the failure instead.
++           */
++          [self handleError: AVAHI_ERR_NO_DAEMON];
++          return;
++        }
+       _resolver =  (void*)avahi_service_resolver_new((AvahiClient*)_client,
+                                                              _ifIndex,
+                                                             _protocol,
+@@ -1382,6 +1390,15 @@ didUpdateRecordData: (id)data
+       return;
+     }
+ 
++  if (NULL == _client)
++    {
++      /* avahi asserts on a NULL client (no avahi-daemon or system bus). */
++      [self handleError: AVAHI_ERR_NO_DAEMON
++              forRRCode: code];
++      [_lock unlock];
++      return;
++    }
++
+   browser = NSMapGet(_browsers, (void*)(uintptr_t)code);
+   if (browser)
+     {
+diff --git a/Source/GSAvahiNetServiceBrowser.m b/Source/GSAvahiNetServiceBrowser.m
+index d616db361..aa9817e3a 100644
+--- a/Source/GSAvahiNetServiceBrowser.m
++++ b/Source/GSAvahiNetServiceBrowser.m
+@@ -32,6 +32,7 @@
+ #import "Foundation/NSRunLoop.h"
+ #import "Foundation/NSString.h"
+ #import "GNUstepBase/GSObjCRuntime.h"
++#include <avahi-common/error.h>
+ #include <avahi-client/lookup.h>
+ 
+ #define SERVICE_KEY(name, type, domain, iface, proto) [NSString stringWithFormat: @"%@.%@.%@%d:%d", name, type, domain, iface, proto]
+@@ -295,7 +296,15 @@ GSAvahiServiceBrowserEvent(
+       /* Check whether the avahi-client is in a working state (the caller
+        * might be trying to search again after a failure event).
+        */
+-      switch (avahi_client_get_state((AvahiClient*)_client))
++      if (_client == NULL)
++	{
++	  /* The client could not be created (no avahi-daemon or no system
++	   * bus) and avahi asserts on a NULL client, which would abort the
++	   * whole process instead of failing the search.
++	   */
++	  err = AVAHI_ERR_NO_DAEMON;
++	}
++      else switch (avahi_client_get_state((AvahiClient*)_client))
+ 	{
+ 	  case AVAHI_CLIENT_FAILURE:
+ 	    err = avahi_client_errno((AvahiClient*)_client);
+diff --git a/Tests/base/NSNetService/noDaemon.m b/Tests/base/NSNetService/noDaemon.m
+new file mode 100644
+index 000000000..bff9252df
+--- /dev/null
++++ b/Tests/base/NSNetService/noDaemon.m
+@@ -0,0 +1,84 @@
++/* With the system bus (and so the zeroconf daemon) out of reach, searching
++ * for and resolving services must be reported to the delegate as a failure.
++ * The avahi client does not exist then, and calling into avahi without one
++ * aborts the process in an assertion.  Only the avahi backend is affected; any
++ * other backend is skipped.
++ */
++#import "ObjectTesting.h"
++#import <Foundation/Foundation.h>
++#if !defined(_WIN32)
++#include <stdlib.h>
++
++@interface Watcher : NSObject <NSNetServiceBrowserDelegate, NSNetServiceDelegate>
++{
++@public
++  BOOL	searchFailed;
++  BOOL	resolveFailed;
++}
++@end
++
++@implementation Watcher
++- (void) netServiceBrowser: (NSNetServiceBrowser *)browser
++	      didNotSearch: (NSDictionary *)errorDict
++{
++  searchFailed = YES;
++}
++- (void) netService: (NSNetService *)sender
++      didNotResolve: (NSDictionary *)errorDict
++{
++  resolveFailed = YES;
++}
++@end
++#endif
++
++int main()
++{
++  ENTER_POOL
++  START_SET("NSNetService without a daemon")
++
++#if defined(_WIN32)
++  SKIP("NSNetService has no zeroconf backend on Windows")
++#else
++  {
++  Watcher		*watcher = AUTORELEASE([Watcher new]);
++  NSNetServiceBrowser	*browser;
++  NSNetService		*service;
++  NSDate		*limit;
++
++  setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/nonexistent", 1);
++  browser = AUTORELEASE([NSNetServiceBrowser new]);
++  if (browser == nil
++    || [NSStringFromClass([browser class]) isEqual: @"GSAvahiNetServiceBrowser"]
++    == NO)
++    {
++      SKIP("the avahi backend is not in use")
++    }
++  [browser setDelegate: watcher];
++  [browser searchForServicesOfType: @"_gnustep-test._tcp." inDomain: @"local."];
++  limit = [NSDate dateWithTimeIntervalSinceNow: 5.0];
++  while (watcher->searchFailed == NO && [limit timeIntervalSinceNow] > 0)
++    {
++      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			       beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.1]];
++    }
++  PASS(watcher->searchFailed, "a search reports didNotSearch without a daemon")
++
++  service = AUTORELEASE([[NSNetService alloc] initWithDomain: @"local."
++						        type: @"_gnustep-test._tcp."
++						        name: @"NSNetService test"]);
++  [service setDelegate: watcher];
++  [service resolveWithTimeout: 5.0];
++  limit = [NSDate dateWithTimeIntervalSinceNow: 5.0];
++  while (watcher->resolveFailed == NO && [limit timeIntervalSinceNow] > 0)
++    {
++      [[NSRunLoop currentRunLoop] runMode: NSDefaultRunLoopMode
++			       beforeDate: [NSDate dateWithTimeIntervalSinceNow: 0.1]];
++    }
++  PASS(watcher->resolveFailed, "a resolve reports didNotResolve without a daemon")
++  }
++#endif
++
++  END_SET("NSNetService without a daemon")
++  LEAVE_POOL
++  return 0;
++}

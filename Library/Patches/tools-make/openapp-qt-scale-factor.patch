@@ -1,0 +1,38 @@
+diff --git a/openapp.in b/openapp.in
+index 20a70ebc..a72f9e97 100755
+--- a/openapp.in
++++ b/openapp.in
+@@ -292,6 +292,33 @@ if [ -n "$openapp_only_find" ]; then
+   exit 0
+ fi
+ 
++# A desktop can be scaled with GSScaleFactor, but a toolkit that was not
++# written for it (Qt, for one) learns the scale only from
++# QT_SCALE_FACTOR.  Pass the factor on, so an application started this way
++# comes up the same size as one started by a desktop that knows about it.
++# The environment wins over the saved default (that is the value the
++# session itself runs with), and an unset factor changes nothing.
++openapp_scale_factor="$GSScaleFactor"
++if [ -z "$openapp_scale_factor" ] && command -v defaults >/dev/null 2>&1
++then
++  # 'defaults read' prints values in the user's own locale, where the
++  # decimal point is written as a comma, so ask for the C locale: the
++  # number has to stay parseable by the application that receives it.
++  openapp_scale_factor=`LC_ALL=C LANG=C LANGUAGE=C defaults read \
++    NSGlobalDomain GSScaleFactor 2>/dev/null | awk '{print $3}'`
++fi
++# Export the factor only if it really is a plain positive number; anything
++# else is left for the application to make up its own mind about.
++case "$openapp_scale_factor" in
++  '' | 0 | .* | *. | *[!0-9.]* | *.*.* )
++    openapp_scale_factor=
++    ;;
++esac
++if [ -n "$openapp_scale_factor" ]; then
++  QT_SCALE_FACTOR="$openapp_scale_factor"
++  export QT_SCALE_FACTOR
++fi
++
+ if [ -n "$openapp_debug_mode" ]; then
+ 
+   # Search for a core file in the current directory.
