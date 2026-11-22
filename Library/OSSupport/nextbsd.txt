@@ -5,6 +5,7 @@ png
 lcms2
 gnutls
 libffi
+icu
 pkgconf
 cairo
 sane-backends
