@@ -127,6 +127,9 @@ case "$OS_ID" in
       # Strip any port-revision suffix (e.g. autoconf-2.72p0 -> autoconf-2.72)
       # and check if a package with that stem is already installed.
       stem="${pkg%p[0-9]*}"
+      # "name--" asks for the package without flavor (sane-backends comes in
+      # several); pkg_info lists it under the plain name
+      stem="${stem%--}"
       if ! pkg_info | grep -q "^${stem}[- ]"; then
         missing="$missing $pkg"
       fi

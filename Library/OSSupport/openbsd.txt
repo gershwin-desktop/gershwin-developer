@@ -15,7 +15,7 @@ gnutls
 libffi
 icu4c
 cairo
-sane-backends
+sane-backends--
 flite
 freeglut
 giflib
