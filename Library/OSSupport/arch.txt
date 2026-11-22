@@ -11,6 +11,7 @@ gnutls
 libffi
 icu
 cairo
+sane
 libxft
 avahi
 flite

@@ -11,6 +11,7 @@ gnutls-devel
 libffi-devel
 icu-devel
 cairo-devel
+sane-devel
 libXft-devel
 avahi
 avahi-compat-libs-devel

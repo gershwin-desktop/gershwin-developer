@@ -11,6 +11,7 @@ libgnutls28-dev
 libffi-dev
 libicu-dev
 libcairo2-dev
+libsane-dev
 libxft-dev
 avahi-daemon
 libavahi-compat-libdnssd-dev

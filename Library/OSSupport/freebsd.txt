@@ -9,6 +9,7 @@ libffi
 icu
 pkgconf
 cairo
+sane-backends
 libXft
 flite
 libXt
