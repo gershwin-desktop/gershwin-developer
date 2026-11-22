@@ -1,0 +1,66 @@
+diff --git a/Headers/AppKit/NSWindow.h b/Headers/AppKit/NSWindow.h
+index b9e57e4d0..9d89ca5d9 100644
+--- a/Headers/AppKit/NSWindow.h
++++ b/Headers/AppKit/NSWindow.h
+@@ -330,11 +330,12 @@ PACKAGE_SCOPE
+     unsigned is_movable_by_window_background: 1;
+     unsigned allows_tooltips_when_inactive: 1;
+ 
+-    // 4 used 28 available
++    // 5 used 27 available
+     unsigned shows_toolbar_button: 1;
+     unsigned autorecalculates_keyview_loop: 1;
+     unsigned ignores_mouse_events: 1;
+     unsigned preserves_content_during_live_resize: 1;
++    unsigned shows_resize_indicator: 1;
+   } _f;
+ @protected 
+   NSToolbar     *_toolbar;
+diff --git a/Source/NSWindow.m b/Source/NSWindow.m
+index 42c6922e8..a5b80c0c3 100644
+--- a/Source/NSWindow.m
++++ b/Source/NSWindow.m
+@@ -1133,6 +1133,7 @@ many times.
+ 
+   _f.cursor_rects_enabled = YES;
+   _f.cursor_rects_valid = NO;
++  _f.shows_resize_indicator = YES;
+ 
+   /* Create the window view */
+   cframe.origin = NSZeroPoint;
+@@ -2117,14 +2118,23 @@ titleWithRepresentedFilename(NSString *representedFilename)
+ 
+ - (BOOL) showsResizeIndicator
+ {
+-  return ([self styleMask] & NSResizableWindowMask) ? YES : NO;
++  if (([self styleMask] & NSResizableWindowMask) == 0)
++    {
++      return NO;
++    }
++  return _f.shows_resize_indicator;
+ }
+ 
+ - (void) setShowsResizeIndicator: (BOOL)show
+ {
+-  // TODO
+-  NSLog(@"Method %s is not implemented for class %s",
+-        "setShowsResizeIndicator:", "NSWindow");
++  if (_f.shows_resize_indicator == show)
++    {
++      return;
++    }
++  _f.shows_resize_indicator = show;
++  /* The theme draws the indicator, so the window is drawn again without
++     it, or with it back. */
++  [_wv setNeedsDisplay: YES];
+ }
+ 
+ - (BOOL) preservesContentDuringLiveResize
+@@ -6161,6 +6171,7 @@ current key view.<br />
+ //  _f.is_main = NO;
+ //  _f.is_edited = NO;
+   _f.is_released_when_closed = YES;
++  _f.shows_resize_indicator = YES;
+ //  _f.is_miniaturized = NO;
+ //  _f.menu_exclude = NO;
+ //  _f.hides_on_deactivate = NO;

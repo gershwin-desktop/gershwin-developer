@@ -1,0 +1,419 @@
+diff --git a/Source/NSFileManager.m b/Source/NSFileManager.m
+index 781758a0a..cec908f20 100644
+--- a/Source/NSFileManager.m
++++ b/Source/NSFileManager.m
+@@ -294,6 +294,12 @@ exitedThread(void *lastErrorPtr)
+ }
+ 
+ 
++@interface NSFileManager ()
++- (BOOL) _changeFileAttributes: (NSDictionary*)attributes
++			atPath: (NSString*)path
++		  traverseLink: (BOOL)traverseLink;
++@end
++
+ @interface NSFileManager (PrivateMethods)
+ 
+ /* Copies the contents of source file to destination file. Assumes source
+@@ -440,6 +446,15 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+  * On failure, some of the requested changes may have taken place.<br />
+  */
+ - (BOOL) changeFileAttributes: (NSDictionary*)attributes atPath: (NSString*)path
++{
++  return [self _changeFileAttributes: attributes
++			      atPath: path
++			traverseLink: YES];
++}
++
++- (BOOL) _changeFileAttributes: (NSDictionary*)attributes
++			atPath: (NSString*)path
++		  traverseLink: (BOOL)traverseLink
+ {
+   NSDictionary  *old;
+   const GSNativeChar	*lpath = 0;
+@@ -447,15 +462,30 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+   NSString	*str;
+   NSDate	*date;
+   BOOL		allOk = YES;
++  BOOL		isLink = NO;
++  BOOL		skipTimes = NO;
++#ifndef _WIN32
++  int		(*changeOwner)(const char *, uid_t, gid_t) = chown;
++#endif
+ 
+   if (0 == [attributes count])
+     {
+       return YES;
+     }
+-  old = [self fileAttributesAtPath: path traverseLink: YES];
++  old = [self fileAttributesAtPath: path traverseLink: traverseLink];
+   lpath = [defaultManager fileSystemRepresentationWithPath: path];
+ 
+ #ifndef _WIN32
++  if (NO == traverseLink
++    && [[old fileType] isEqualToString: NSFileTypeSymbolicLink])
++    {
++      isLink = YES;
++      changeOwner = lchown;
++#if !defined (HAVE_UTIMENSAT)
++      skipTimes = YES;
++#endif
++    }
++
+   if (object_getClass(attributes) == GSAttrDictionaryClass)
+     {
+       num = ((GSAttrDictionary*)attributes)->statbuf.st_uid;
+@@ -468,7 +498,7 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+     }
+   if (num != NSNotFound && num != [[old fileOwnerAccountID] unsignedLongValue])
+     {
+-      if (chown(lpath, num, -1) != 0)
++      if ((*changeOwner)(lpath, num, -1) != 0)
+ 	{
+ 	  allOk = NO;
+ 	  str = [NSString stringWithFormat:
+@@ -492,10 +522,10 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 	  if (getpwnam_r([str cStringUsingEncoding: defaultEncoding],
+             &pw, buf, sizeof(buf), &p) == 0)
+ 	    {
+-	      ok = (chown(lpath, pw.pw_uid, -1) == 0);
++	      ok = ((*changeOwner)(lpath, pw.pw_uid, -1) == 0);
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wunused-result"
+-	      (void)chown(lpath, -1, pw.pw_gid);
++	      (void)(*changeOwner)(lpath, -1, pw.pw_gid);
+ #pragma GCC diagnostic pop
+ 	    }
+ #else
+@@ -506,10 +536,10 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 	  pw = getpwnam([str cStringUsingEncoding: defaultEncoding]);
+ 	  if (pw != 0)
+ 	    {
+-	      ok = (chown(lpath, pw->pw_uid, -1) == 0);
++	      ok = ((*changeOwner)(lpath, pw->pw_uid, -1) == 0);
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wunused-result"
+-	      (void)chown(lpath, -1, pw->pw_gid);
++	      (void)(*changeOwner)(lpath, -1, pw->pw_gid);
+ #pragma GCC diagnostic pop
+ 	    }
+           GS_MUTEX_UNLOCK(classLock);
+@@ -540,7 +570,7 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+   if (num != NSNotFound
+     && num != [[old fileGroupOwnerAccountID] unsignedLongValue])
+     {
+-      if (chown(lpath, -1, num) != 0)
++      if ((*changeOwner)(lpath, -1, num) != 0)
+ 	{
+ 	  allOk = NO;
+ 	  str = [NSString stringWithFormat:
+@@ -562,8 +592,10 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+       if (getgrnam_r([str cStringUsingEncoding: defaultEncoding], &gp,
+         buf, sizeof(buf), &p) == 0)
+         {
+-	  if (chown(lpath, -1, gp.gr_gid) == 0)
+-	    ok = YES;
++	  if ((*changeOwner)(lpath, -1, gp.gr_gid) == 0)
++	    {
++	      ok = YES;
++	    }
+         }
+ #else
+ #ifdef HAVE_GETGRNAM
+@@ -573,8 +605,10 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+       gp = getgrnam([str cStringUsingEncoding: defaultEncoding]);
+       if (gp)
+ 	{
+-	  if (chown(lpath, -1, gp->gr_gid) == 0)
+-	    ok = YES;
++	  if ((*changeOwner)(lpath, -1, gp->gr_gid) == 0)
++	    {
++	      ok = YES;
++	    }
+ 	}
+       GS_MUTEX_UNLOCK(classLock);
+ #endif
+@@ -592,7 +626,7 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ #endif	/* _WIN32 */
+ 
+   num = [attributes filePosixPermissions];
+-  if (num != NSNotFound && num != [old filePosixPermissions])
++  if (num != NSNotFound && NO == isLink && num != [old filePosixPermissions])
+     {
+       if (_CHMOD(lpath, num) != 0)
+ 	{
+@@ -605,14 +639,15 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+     }
+ 
+   date = [attributes fileCreationDate];
+-  if (date != nil && NO == [date isEqual: [old fileCreationDate]])
++  if (date != nil && NO == skipTimes
++    && NO == [date isEqual: [old fileCreationDate]])
+     {
+       BOOL		ok = NO;
+       struct _STATB	sb;
+       const GSNativeChar *lpath;
+ 
+       lpath = [self fileSystemRepresentationWithPath: path];
+-      if (_STAT(lpath, &sb) != 0)
++      if (NO == isLink && _STAT(lpath, &sb) != 0)
+ 	{
+ 	  ok = NO;
+ 	}
+@@ -650,7 +685,8 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 	  ub[1].tv_sec = (time_t)trunc(ti);
+ 	  ub[1].tv_nsec = (long)trunc((ti - trunc(ti)) * 1.0e9);
+ 
+-	  ok = (utimensat(AT_FDCWD, lpath, ub, 0) == 0);
++	  ok = (utimensat(AT_FDCWD, lpath, ub,
++	    isLink ? AT_SYMLINK_NOFOLLOW : 0) == 0);
+ #elif  defined(_POSIX_VERSION)
+           struct _UTIMB ub;
+ 	  ub.actime = sb.st_atime;
+@@ -675,12 +711,13 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+     }
+ 
+   date = [attributes fileModificationDate];
+-  if (date != nil && NO == [date isEqual: [old fileModificationDate]])
++  if (date != nil && NO == skipTimes
++    && NO == [date isEqual: [old fileModificationDate]])
+     {
+       BOOL		ok = NO;
+       struct _STATB	sb;
+ 
+-      if (_STAT(lpath, &sb) != 0)
++      if (NO == isLink && _STAT(lpath, &sb) != 0)
+ 	{
+ 	  ok = NO;
+ 	}
+@@ -700,7 +737,8 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 	  ub[1].tv_sec = (time_t)trunc(ti);
+ 	  ub[1].tv_nsec = (long)trunc((ti - trunc(ti)) * 1.0e9);
+ 
+-	  ok = (utimensat(AT_FDCWD, lpath, ub, 0) == 0);
++	  ok = (utimensat(AT_FDCWD, lpath, ub,
++	    isLink ? AT_SYMLINK_NOFOLLOW : 0) == 0);
+ #elif  defined(_WIN32) || defined(_POSIX_VERSION)
+           struct _UTIMB ub;
+ 	  ub.actime = sb.st_atime;
+@@ -1477,7 +1515,7 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 	  return NO;
+ 	}
+     }
+-  [self changeFileAttributes: attrs atPath: destination];
++  [self _changeFileAttributes: attrs atPath: destination traverseLink: NO];
+   return YES;
+ }
+ 
+@@ -1573,7 +1611,9 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 
+ 	  attributes = [self fileAttributesAtPath: source
+ 				     traverseLink: NO];
+-	  [self changeFileAttributes: attributes atPath: destination];
++	  [self _changeFileAttributes: attributes
++				atPath: destination
++			  traverseLink: NO];
+ 	  return [self removeFileAtPath: source handler: handler];
+ 	}
+       else
+@@ -1730,7 +1770,7 @@ static gs_mutex_t       classLock = GS_MUTEX_INIT_STATIC;
+ 	    }
+ 	}
+     }
+-  [self changeFileAttributes: attrs atPath: destination];
++  [self _changeFileAttributes: attrs atPath: destination traverseLink: NO];
+   return YES;
+ #else
+   [self _setLastError: @"Links not supported on this platform"];
+@@ -3591,7 +3631,9 @@ static inline void gsedRelease(GSEnumeratedDirectory X)
+ 	  NSDebugLog(@"%@: %@", sourceFile, s);
+ 	  continue;
+ 	}
+-      [self changeFileAttributes: attributes atPath: destinationFile];
++      [self _changeFileAttributes: attributes
++			    atPath: destinationFile
++		      traverseLink: NO];
+     }
+   LEAVE_POOL
+ 
+@@ -3686,7 +3728,9 @@ static inline void gsedRelease(GSEnumeratedDirectory X)
+                 }
+ 	    }
+ 	}
+-      [self changeFileAttributes: attributes atPath: destinationFile];
++      [self _changeFileAttributes: attributes
++			    atPath: destinationFile
++		      traverseLink: NO];
+     }
+   LEAVE_POOL
+   return result;
+diff --git a/Tests/base/NSFileManager/copySymlinkAttributes.m b/Tests/base/NSFileManager/copySymlinkAttributes.m
+new file mode 100644
+index 000000000..8732815c9
+--- /dev/null
++++ b/Tests/base/NSFileManager/copySymlinkAttributes.m
+@@ -0,0 +1,164 @@
++#import "Testing.h"
++#import <Foundation/Foundation.h>
++
++#if defined(_WIN32)
++
++int main()
++{
++  START_SET("copySymlinkAttributes")
++  SKIP("POSIX symbolic links are not available on this platform")
++  END_SET("copySymlinkAttributes")
++  return 0;
++}
++
++#else
++
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <sys/time.h>
++#include <unistd.h>
++
++/* Copying or linking a tree that contains symbolic links must apply the
++ * attributes of each link to the new link itself (or not at all), never
++ * to the file the link points to.
++ */
++
++static struct stat
++statOf(NSString *path)
++{
++  struct stat	sb;
++
++  memset(&sb, 0, sizeof(sb));
++  stat([path fileSystemRepresentation], &sb);
++  return sb;
++}
++
++static BOOL
++sameAttributes(struct stat a, struct stat b)
++{
++  return (a.st_mode == b.st_mode && a.st_uid == b.st_uid
++    && a.st_gid == b.st_gid && a.st_mtime == b.st_mtime);
++}
++
++static NSString *
++linkContent(NSString *path)
++{
++  return [[NSFileManager defaultManager]
++    pathContentOfSymbolicLinkAtPath: path];
++}
++
++static void
++resetFile(NSString *path)
++{
++  struct timeval	tv[2];
++
++  chmod([path fileSystemRepresentation], 0644);
++  tv[0].tv_sec = tv[1].tv_sec = 978307200;
++  tv[0].tv_usec = tv[1].tv_usec = 0;
++  utimes([path fileSystemRepresentation], tv);
++}
++
++static void
++makeFile(NSString *path)
++{
++  [[NSFileManager defaultManager] createFileAtPath: path
++    contents: [NSData dataWithBytes: "x" length: 1] attributes: nil];
++  resetFile(path);
++}
++
++int main()
++{
++  NSAutoreleasePool	*arp = [NSAutoreleasePool new];
++  NSFileManager		*mgr = [NSFileManager defaultManager];
++  NSString		*root;
++  NSString		*src;
++  NSString		*outside;
++  NSString		*file;
++  NSString		*dst;
++  struct stat		outsideBefore;
++  struct stat		fileBefore;
++  NSError		*err = nil;
++
++  root = [[mgr currentDirectoryPath]
++    stringByAppendingPathComponent: @"SymlinkAttributesTestDir"];
++  [mgr removeFileAtPath: root handler: nil];
++  [mgr createDirectoryAtPath: root attributes: nil];
++  src = [root stringByAppendingPathComponent: @"src"];
++  [mgr createDirectoryAtPath: src attributes: nil];
++  outside = [root stringByAppendingPathComponent: @"outside"];
++  file = [src stringByAppendingPathComponent: @"file"];
++  makeFile(outside);
++  makeFile(file);
++  [mgr createSymbolicLinkAtPath: [src stringByAppendingPathComponent: @"rel"]
++		    pathContent: @"file"];
++  [mgr createSymbolicLinkAtPath: [src stringByAppendingPathComponent: @"abs"]
++		    pathContent: outside];
++  [mgr createSymbolicLinkAtPath: [root stringByAppendingPathComponent: @"top"]
++		    pathContent: outside];
++  outsideBefore = statOf(outside);
++  fileBefore = statOf(file);
++  PASS((outsideBefore.st_mode & 07777) == 0644
++    && (fileBefore.st_mode & 07777) == 0644
++    && outsideBefore.st_mtime == 978307200,
++    "test files are set up with mode 0644 and an old modification date")
++
++  dst = [root stringByAppendingPathComponent: @"copy1"];
++  PASS([mgr copyPath: src toPath: dst handler: nil],
++    "-copyPath:toPath:handler: copies a directory with symbolic links")
++  PASS(sameAttributes(statOf(outside), outsideBefore),
++    "-copyPath:toPath:handler: leaves the target of an absolute link alone")
++  PASS(sameAttributes(statOf(file), fileBefore),
++    "-copyPath:toPath:handler: leaves the source file alone")
++  PASS((statOf([dst stringByAppendingPathComponent: @"file"]).st_mode & 07777)
++    == 0644, "-copyPath:toPath:handler: keeps the mode of the copied file")
++  PASS_EQUAL(linkContent([dst stringByAppendingPathComponent: @"abs"]),
++    outside, "the copied absolute link points where the original did")
++  PASS_EQUAL(linkContent([dst stringByAppendingPathComponent: @"rel"]),
++    @"file", "the copied relative link points where the original did")
++
++  resetFile(outside);
++  resetFile(file);
++  dst = [root stringByAppendingPathComponent: @"copy2"];
++  PASS([mgr copyItemAtPath: src toPath: dst error: &err],
++    "-copyItemAtPath:toPath:error: copies a directory with symbolic links")
++  PASS(sameAttributes(statOf(outside), outsideBefore),
++    "-copyItemAtPath:toPath:error: leaves the target of an absolute link"
++    " alone")
++  PASS((statOf([dst stringByAppendingPathComponent: @"file"]).st_mode & 07777)
++    == 0644, "-copyItemAtPath:toPath:error: keeps the mode of the copied file")
++
++  resetFile(outside);
++  resetFile(file);
++  dst = [root stringByAppendingPathComponent: @"copy3"];
++  PASS([mgr copyPath: [root stringByAppendingPathComponent: @"top"]
++	      toPath: dst handler: nil],
++    "-copyPath:toPath:handler: copies a symbolic link")
++  PASS(sameAttributes(statOf(outside), outsideBefore),
++    "copying a symbolic link leaves its target alone")
++  PASS_EQUAL(linkContent(dst), outside,
++    "the copied link points where the original did")
++
++  START_SET("-linkPath:toPath:handler:")
++  dst = [root stringByAppendingPathComponent: @"hardlink"];
++  if (link([file fileSystemRepresentation],
++    [dst fileSystemRepresentation]) != 0)
++    {
++      SKIP("hard links are not supported here")
++    }
++  resetFile(outside);
++  resetFile(file);
++  dst = [root stringByAppendingPathComponent: @"link1"];
++  PASS([mgr linkPath: src toPath: dst handler: nil],
++    "-linkPath:toPath:handler: links a directory with symbolic links")
++  PASS(sameAttributes(statOf(outside), outsideBefore),
++    "-linkPath:toPath:handler: leaves the target of an absolute link alone")
++  PASS_EQUAL(linkContent([dst stringByAppendingPathComponent: @"abs"]),
++    outside, "the linked tree's absolute link points where the original did")
++  END_SET("-linkPath:toPath:handler:")
++
++  [mgr removeFileAtPath: root handler: nil];
++  [arp release];
++  return 0;
++}
++
++#endif

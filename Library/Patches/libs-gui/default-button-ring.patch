@@ -1,0 +1,427 @@
+diff --git a/Headers/Additions/GNUstepGUI/GSTheme.h b/Headers/Additions/GNUstepGUI/GSTheme.h
+index e7648f40b..356ac5de8 100644
+--- a/Headers/Additions/GNUstepGUI/GSTheme.h
++++ b/Headers/Additions/GNUstepGUI/GSTheme.h
+@@ -811,6 +811,8 @@ APPKIT_EXPORT_CLASS
+ - (void) setKeyEquivalent: (NSString *)key 
+             forButtonCell: (NSButtonCell *)cell;
+ 
++- (CGFloat) defaultButtonRingOutset;
++
+ /**
+  * Draws a button frame and background (not its content) for the specified
+  * cell and view.
+diff --git a/Source/GSThemeDrawing.m b/Source/GSThemeDrawing.m
+index 6963c4e00..6bb9c396d 100644
+--- a/Source/GSThemeDrawing.m
++++ b/Source/GSThemeDrawing.m
+@@ -99,6 +99,11 @@
+ @end
+ 
+ @implementation	GSTheme (Drawing)
++- (CGFloat) defaultButtonRingOutset
++{
++  return 0.0;
++}
++
+ - (void) setKeyEquivalent: (NSString *)key 
+             forButtonCell: (NSButtonCell *)cell
+ {
+diff --git a/Source/NSAlert.m b/Source/NSAlert.m
+index 9c339ee21..39fd6c8ce 100644
+--- a/Source/NSAlert.m
++++ b/Source/NSAlert.m
+@@ -875,10 +875,12 @@ setKeyEquivalent(NSButton *button)
+   if (useControl(defButton))
+     {
+       [self makeFirstResponder: defButton];
++      [self setDefaultButtonCell: [defButton cell]];
+     }
+   else
+     {
+       [self makeFirstResponder: self];
++      [self setDefaultButtonCell: nil];
+     }
+   if (useControl(altButton))
+     {
+@@ -956,10 +958,12 @@ setKeyEquivalent(NSButton *button)
+   if (useControl(defButton))
+     {
+       [self makeFirstResponder: defButton];
++      [self setDefaultButtonCell: [defButton cell]];
+     }
+   else
+     {
+       [self makeFirstResponder: self];
++      [self setDefaultButtonCell: nil];
+     }
+ 
+   /* a *working* nextKeyView chain:
+diff --git a/Source/NSButton.m b/Source/NSButton.m
+index 1b1074e2c..591d883db 100644
+--- a/Source/NSButton.m
++++ b/Source/NSButton.m
+@@ -35,9 +35,12 @@
+ #import "AppKit/NSButton.h"
+ #import "AppKit/NSButtonCell.h"
+ #import "AppKit/NSEvent.h"
++#import "AppKit/NSGraphics.h"
+ #import "AppKit/NSWindow.h"
+ 
++#import "GNUstepGUI/GSTheme.h"
+ #import "GSFastEnumeration.h"
++#import "NSViewPrivate.h"
+ 
+ //
+ // class variables
+@@ -628,6 +631,53 @@ static id buttonCellClass = nil;
+   return [_cell sound];
+ }
+ 
++/* A theme can mark the default button with a ring around it
++ * (-[GSTheme defaultButtonRingOutset]).  Only the default button of the
++ * window and only a theme with a ring change anything, so every other
++ * button keeps the clipping and draws exactly as before. */
++- (CGFloat) _defaultButtonRingOutset
++{
++  if (_window == nil || [_window defaultButtonCell] != _cell)
++    {
++      return 0.0;
++    }
++  return [[GSTheme theme] defaultButtonRingOutset];
++}
++
++- (BOOL) wantsDefaultClipping
++{
++  if ([self _defaultButtonRingOutset] > 0.0)
++    {
++      return NO;
++    }
++  return [super wantsDefaultClipping];
++}
++
++- (NSRect) _drawingExtend
++{
++  CGFloat outset = [self _defaultButtonRingOutset];
++
++  if (outset > 0.0)
++    {
++      return NSInsetRect([self _frameExtend], -outset, -outset);
++    }
++  return [super _drawingExtend];
++}
++
++/* Without the default clipping nothing stops the button from painting
++ * over pixels that were not redrawn beneath it, which darkens antialiased
++ * edges and text on every partial redraw.  Clipping to the area being
++ * redrawn keeps that, while still letting the ring reach outside the
++ * frame. */
++- (void) drawRect: (NSRect)dirtyRect
++{
++  if ([self wantsDefaultClipping] == NO)
++    {
++      NSRectClip(dirtyRect);
++    }
++  [super drawRect: dirtyRect];
++}
++
+ // Implement 10.7+ radio button behavior
+ - (void) _flipState: (NSButton *)b
+ {
+diff --git a/Source/NSControl.m b/Source/NSControl.m
+index f05f6e340..a372f191d 100644
+--- a/Source/NSControl.m
++++ b/Source/NSControl.m
+@@ -123,6 +123,12 @@ static NSNotificationCenter *nc;
+ - (void) dealloc
+ {
+   [GSKeyValueBinding unbindAllForObject: self];
++  /* A window keeps its default button cell after the button is gone, and
++     asks the cell for its control view when the key state changes. */
++  if ([_cell controlView] == self)
++    {
++      [_cell setControlView: nil];
++    }
+   RELEASE(_cell);
+   [super dealloc];
+ }
+diff --git a/Source/NSView.m b/Source/NSView.m
+index a9023fd75..06e1d5565 100644
+--- a/Source/NSView.m
++++ b/Source/NSView.m
+@@ -546,6 +546,45 @@ GSSetDragTypes(NSView* obj, NSArray *types)
+   return frame;
+ }
+ 
++/* The area in the superview a view may draw into.  A view that returns NO
++ * from -wantsDefaultClipping is not clipped to its frame, so all we know is
++ * that it stays within what the superview shows; subclasses that know
++ * better (NSButton with a default button ring) narrow it down, which keeps
++ * the redraws it causes small. */
++- (NSRect) _drawingExtend
++{
++  if ([self wantsDefaultClipping] || _super_view == nil)
++    {
++      return [self _frameExtend];
++    }
++  return [_super_view visibleRect];
++}
++
++/* -visibleRect for drawing: for a view that does not clip, the part of
++ * its drawing extend the superview shows, in the view's own coordinates.
++ * Display, focus and invalidation use this, so they do not cut what such a
++ * view draws outside its frame. */
++- (NSRect) _visibleDrawingRect
++{
++  NSRect rect;
++
++  if ([self wantsDefaultClipping])
++    {
++      return [self visibleRect];
++    }
++  if ([self isHiddenOrHasHiddenAncestor])
++    {
++      return NSZeroRect;
++    }
++  if (_super_view == nil)
++    {
++      return _bounds;
++    }
++  rect = NSIntersectionRect([self _drawingExtend],
++                            [_super_view visibleRect]);
++  return [self convertRect: rect fromView: _super_view];
++}
++
+ 
+ - (NSString*) _subtreeDescriptionWithPrefix: (NSString*)prefix
+ {
+@@ -1025,6 +1064,12 @@ GSSetDragTypes(NSView* obj, NSArray *types)
+ 	  break;
+ 	}
+     }
++  /* Done before the view is detached: afterwards it can no longer say
++     where it drew, and what it drew outside its frame would stay. */
++  if ([aView wantsDefaultClipping] == NO)
++    {
++      [self setNeedsDisplayInRect: [aView _drawingExtend]];
++    }
+   [self willRemoveSubview: aView];
+   aView->_super_view = nil;
+   [aView _viewWillMoveToWindow: nil];
+@@ -1240,8 +1285,22 @@ static NSSize _computeScale(NSSize fs, NSSize bs)
+ 
+ - (void) _setFrameAndClearAutoresizingError: (NSRect)frameRect
+ {
++  /* Every frame setter ends up here.  The old area must be redrawn or what
++     the view drew outside its frame stays behind, and the new one must be
++     redrawn because the superview, not the view, paints what is around
++     its frame. */
++  BOOL unclipped = (_super_view != nil && [self wantsDefaultClipping] == NO);
++
++  if (unclipped)
++    {
++      [_super_view setNeedsDisplayInRect: [self _drawingExtend]];
++    }
+   _frame = frameRect;
+   _autoresizingFrameError = NSZeroRect;
++  if (unclipped)
++    {
++      [_super_view setNeedsDisplayInRect: [self _drawingExtend]];
++    }
+ }
+ 
+ - (void) setFrame: (NSRect)frameRect
+@@ -2449,7 +2508,7 @@ static void autoresize(CGFloat oldContainerSize,
+ 
+ - (void) lockFocus
+ {
+-  [self lockFocusInRect: [self visibleRect]];
++  [self lockFocusInRect: [self _visibleDrawingRect]];
+ }
+ 
+ - (void) unlockFocus
+@@ -2466,7 +2525,7 @@ static void autoresize(CGFloat oldContainerSize,
+ {
+   if ([self canDraw])
+     {
+-      [self _lockFocusInContext: context inRect: [self visibleRect]];
++      [self _lockFocusInContext: context inRect: [self _visibleDrawingRect]];
+       return YES;
+     }
+   else
+@@ -2520,14 +2579,14 @@ static void autoresize(CGFloat oldContainerSize,
+ 
+ - (void) display
+ {
+-  [self displayRect: [self visibleRect]];
++  [self displayRect: [self _visibleDrawingRect]];
+ }
+ 
+ - (void) displayIfNeeded
+ {
+   if (_rFlags.needs_display == YES)
+     {
+-      [self displayIfNeededInRect: [self visibleRect]];
++      [self displayIfNeededInRect: [self _visibleDrawingRect]];
+     }
+ }
+ 
+@@ -2535,7 +2594,7 @@ static void autoresize(CGFloat oldContainerSize,
+ {
+   if (_rFlags.needs_display == YES)
+     {
+-      [self displayIfNeededInRectIgnoringOpacity: [self visibleRect]];
++      [self displayIfNeededInRectIgnoringOpacity: [self _visibleDrawingRect]];
+     }
+ }
+ 
+@@ -2586,7 +2645,10 @@ static void autoresize(CGFloat oldContainerSize,
+             {
+               if (subview->_rFlags.needs_display)
+                 {
+-                  NSRect subviewFrame = [subview _frameExtend];
++                  /* Not just the frame: a subview that does not clip may
++                     have drawn around it, and that has just been painted
++                     over. */
++                  NSRect subviewFrame = [subview _drawingExtend];
+                   NSRect isect;
+               
+                   isect = NSIntersectionRect(aRect, subviewFrame);
+@@ -2660,7 +2722,7 @@ static void autoresize(CGFloat oldContainerSize,
+   if (context == wContext)
+     {
+       NSRect neededRect;
+-      NSRect visibleRect = [self visibleRect];
++      NSRect visibleRect = [self _visibleDrawingRect];
+ 
+       flush = YES;
+       [_window disableFlushWindow];
+@@ -2709,7 +2771,7 @@ static void autoresize(CGFloat oldContainerSize,
+           for (i = 0; i < count; ++i)
+             {
+               NSView *subview = array[i];
+-              NSRect subviewFrame = [subview _frameExtend];
++              NSRect subviewFrame = [subview _drawingExtend];
+               NSRect isect;
+               
+               /*
+@@ -2869,7 +2931,15 @@ in the main thread.
+ 
+   if (flag)
+     {
+-      [self setNeedsDisplayInRect: _bounds];
++      if ([self wantsDefaultClipping])
++        {
++          [self setNeedsDisplayInRect: _bounds];
++        }
++      else
++        {
++          [self setNeedsDisplayInRect:
++            NSUnionRect(_bounds, [self _visibleDrawingRect])];
++        }
+     }
+   else
+     {
+@@ -2915,11 +2985,21 @@ in the main thread.
+   invalidRect = [v rectValue];
+ 
+   /*
+-   *	Limit to bounds, combine with old _invalidRect, and then check to see
++   *	Limit to bounds (for a view that does not want the default
++   *	clipping, to the area it may draw in), combine with old
++   *	_invalidRect, and then check to see
+    *	if the result is the same as the old _invalidRect - if it isn't then
+    *	set the new _invalidRect.
+    */
+-  invalidRect = NSIntersectionRect(invalidRect, _bounds);
++  if ([self wantsDefaultClipping])
++    {
++      invalidRect = NSIntersectionRect(invalidRect, _bounds);
++    }
++  else
++    {
++      invalidRect = NSIntersectionRect(invalidRect,
++        NSUnionRect(_bounds, [self _visibleDrawingRect]));
++    }
+   invalidRect = NSUnionRect(_invalidRect, invalidRect);
+   if (NSEqualRects(invalidRect, _invalidRect) == NO)
+     {
+diff --git a/Source/NSViewPrivate.h b/Source/NSViewPrivate.h
+index 93045fe77..d7cc05bf6 100644
+--- a/Source/NSViewPrivate.h
++++ b/Source/NSViewPrivate.h
+@@ -39,6 +39,12 @@
+ - (void) _insertSubview: (NSView *)sv atIndex: (NSUInteger)idx;
+ @end
+ 
++@interface NSView (GSDrawingExtend)
++- (NSRect) _frameExtend;
++- (NSRect) _drawingExtend;
++- (NSRect) _visibleDrawingRect;
++@end
++
+ @interface NSView (NSConstraintBasedLayoutCorePrivateMethods)
+ 
+ - (void) _setNeedsUpdateConstraints: (BOOL)needsUpdateConstraints;
+diff --git a/Source/NSWindow.m b/Source/NSWindow.m
+index 66185be8a..43ca5ef78 100644
+--- a/Source/NSWindow.m
++++ b/Source/NSWindow.m
+@@ -160,6 +160,10 @@ static GSWindowAnimationDelegate *animationDelegate;
+  * Category for internal methods (for use only within the NSWindow class itself
+  * or with other AppKit classes.
+  */
++@interface NSWindow (GSDefaultButton)
++- (void) _setDefaultButtonNeedsDisplay;
++@end
++
+ @interface NSWindow (GNUstepPrivate)
+ 
+ + (void) _addAutodisplayedWindow: (NSWindow *)w;
+@@ -1916,6 +1920,7 @@ titleWithRepresentedFilename(NSString *representedFilename)
+       [_wv setInputState: GSTitleBarKey];
+       [GSServerForWindow(self) setinputfocus: _windowNum];
+       [self resetCursorRects];
++      [self _setDefaultButtonNeedsDisplay];
+       [nc postNotificationName: NSWindowDidBecomeKeyNotification object: self];
+       NSDebugLLog(@"NSWindow", @"%@ is now key window", [self title]);
+     }
+@@ -2279,6 +2284,7 @@ titleWithRepresentedFilename(NSString *representedFilename)
+           [_wv setInputState: GSTitleBarNormal];
+         }
+       [self discardCursorRects];
++      [self _setDefaultButtonNeedsDisplay];
+ 
+       [nc postNotificationName: NSWindowDidResignKeyNotification object: self];
+     }
+@@ -5769,14 +5775,30 @@ current key view.<br />
+   return _defaultButtonCell;
+ }
+ 
++/* The theme draws the default button ring with the button, in a color
++ * that depends on the key state, so the button has to be redrawn when it
++ * stops or starts being the default one and when the key state changes.
++ * Buttons that keep the default clipping (no ring) are left alone. */
++- (void) _setDefaultButtonNeedsDisplay
++{
++  NSView *button = [_defaultButtonCell controlView];
++
++  if (button != nil && [button wantsDefaultClipping] == NO)
++    {
++      [button setNeedsDisplay: YES];
++    }
++}
++
+ - (void) setDefaultButtonCell: (NSButtonCell *)aCell
+ {
++  [self _setDefaultButtonNeedsDisplay];
+   ASSIGN(_defaultButtonCell, aCell);
+   _f.default_button_cell_key_disabled = NO;
+ 
+   [aCell setKeyEquivalent: @"\r"];
+   [aCell setKeyEquivalentModifierMask: 0];
+   [[GSTheme theme] didSetDefaultButtonCell: aCell];
++  [self _setDefaultButtonNeedsDisplay];
+ }
+ 
+ - (void) disableKeyEquivalentForDefaultButtonCell

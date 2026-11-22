@@ -44,6 +44,8 @@
 #import "../UITest.h"
 /* The JUnit result model and serializer (spec reporter architecture). */
 #import "../JUnitReporter.h"
+#import "UITestStrayApps.h"
+#import "UITestDetachedLaunch.h"
 
 static NSString *runner = @"/System/Library/Tools/run_uitest";
 static NSString *sourcesRoot = @"/Developer/Library/Sources";
@@ -195,7 +197,41 @@ cpuPercentSince(pid_t pid, CPUWatchSample *st)
   return 0.0;
 }
 
-/* First pid matching a process name (pgrep -x), or 0. */
+/* A zombie still answers kill(pid, 0) and still matches pgrep, but it is
+ * dead.  Desktop components whose parent shell has exited are reparented to
+ * PID 1, and a CI container's PID 1 does not necessarily reap them: a
+ * Workspace that had exited then looked alive forever, so it was neither
+ * reported nor restarted, and every later test failed with "Workspace not
+ * running". */
+static BOOL
+processIsLive(pid_t pid)
+{
+  if (pid <= 0 || kill(pid, 0) != 0)
+    {
+      return NO;
+    }
+  FILE *fp = popen([[NSString stringWithFormat: @"ps -o stat= -p %d",
+    (int)pid] UTF8String], "r");
+  if (!fp)
+    {
+      return YES;
+    }
+  char line[32];
+  BOOL zombie = NO;
+  if (fgets(line, sizeof(line), fp))
+    {
+      char *c = line;
+      while (*c == ' ')
+        {
+          c++;
+        }
+      zombie = (*c == 'Z');
+    }
+  pclose(fp);
+  return !zombie;
+}
+
+/* First live pid matching a process name (pgrep -x), or 0. */
 static pid_t
 pidOfName(NSString *name)
 {
@@ -206,13 +242,17 @@ pidOfName(NSString *name)
       return 0;
     }
   char line[64];
-  pid_t pid = 0;
-  if (fgets(line, sizeof(line), fp))
+  pid_t found = 0;
+  while (found == 0 && fgets(line, sizeof(line), fp))
     {
-      pid = (pid_t)atoi(line);
+      pid_t pid = (pid_t)atoi(line);
+      if (processIsLive(pid))
+        {
+          found = pid;
+        }
     }
   pclose(fp);
-  return pid;
+  return found;
 }
 
 /* Best-effort diagnostic: dump the head of a process stack to stderr.
@@ -429,7 +469,7 @@ watchdogMain(void *arg)
             {
               continue;          /* Workspace not installed/running: skip */
             }
-          if (kill(pid, 0) == 0)
+          if (processIsLive(pid))
             {
               continue;          /* alive */
             }
@@ -531,9 +571,7 @@ lastLinesOfLog(NSString *path, int lines)
 static BOOL
 processRunning(NSString *name)
 {
-  NSString *cmd = [NSString stringWithFormat:@"pgrep -x %@ >/dev/null 2>&1",
-    name];
-  return WEXITSTATUS(system([cmd UTF8String])) == 0;
+  return pidOfName(name) > 0;
 }
 
 /* Path to an installed app bundle's executable, or nil.  Used to make a
@@ -585,9 +623,11 @@ launchWorkspaceIfNeeded(void)
     }
   NSString *bin = appPath(@"Workspace");
   NSLog(@"starting Workspace before test: %@", bin);
-  NSString *cmd = [NSString stringWithFormat:
-    @"setsid %@ </dev/null >/tmp/uitest_workspace.log 2>&1 &", bin];
-  system([cmd UTF8String]);
+  if (UITestLaunchDetached(bin, @"/tmp/uitest_workspace.log") == 0)
+    {
+      NSLog(@"Workspace could not be started");
+      return NO;
+    }
   for (int i = 0; i < 25; i++)
     {
       if (processRunning(@"Workspace"))
@@ -702,7 +742,7 @@ reportMappedWindows(NSString *label)
 }
 
 static BOOL
-runScript(NSString *abs, GSUITestResult *result)
+runScriptBody(NSString *abs, GSUITestResult *result)
 {
   if (!fileExists(abs))
     {
@@ -934,6 +974,37 @@ runScript(NSString *abs, GSUITestResult *result)
     }
   reportMappedWindows([abs lastPathComponent]);
   return status == 0;
+}
+
+/* Run one script; when it fails, close the applications it started.  A test
+ * that times out never reaches its own quit, and the application it left
+ * open (with its windows) covers the next test's drag source or answers the
+ * next test's lookups, so one failure would take later, unrelated tests down
+ * with it.  The report of the windows has been written by then, so the log
+ * still shows what was left. */
+static BOOL
+runScript(NSString *abs, GSUITestResult *result)
+{
+  NSSet *before = UITestDriveUIPids(@"/tmp");
+  BOOL ok = runScriptBody(abs, result);
+  if (!ok)
+    {
+      NSSet *keep = [NSSet setWithObjects: @"Menu", @"Workspace", @"Dock",
+        @"WindowManager", nil];
+      NSArray *closed = UITestTerminateStrayApps(before, @"/tmp", keep, 3.0,
+        ^(pid_t pid, NSString *name)
+          {
+            /* An app that is open but did not answer DriveUI is the
+             * interesting case, and its stack is gone after the kill. */
+            captureStack(pid, [name UTF8String]);
+          });
+      if ([closed count] > 0)
+        {
+          NSLog(@"%s failed: closed the application(s) it left open: %@",
+            [abs UTF8String], [closed componentsJoinedByString: @", "]);
+        }
+    }
+  return ok;
 }
 
 /* UITEST_SEARCH_DIRS (set by TestInfo or the cross-repo driver) is a

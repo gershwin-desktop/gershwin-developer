@@ -1,0 +1,40 @@
+diff --git a/Source/cairo/CairoFontInfo.m b/Source/cairo/CairoFontInfo.m
+index 0f6faec..dc21a21 100644
+--- a/Source/cairo/CairoFontInfo.m
++++ b/Source/cairo/CairoFontInfo.m
+@@ -181,8 +181,34 @@ void set_font_options(cairo_font_options_t *options)
+ 
+   ascender = font_extents.ascent;
+   descender = -font_extents.descent;
+-  xHeight = ascender * 0.6;
+   lineHeight = font_extents.height;
++
++  /* The cap height and the x-height are the heights of a capital and a
++   * lowercase letter above the baseline, which the extents of "H" and "x"
++   * give for any face cairo can render. Before this the cap height was
++   * never set (an application saw 0) and the x-height was a guess of 60
++   * percent of the ascender, which is 10 to 15 percent off for common
++   * faces, so text centred on either metric sat visibly high. */
++  {
++    cairo_text_extents_t extents;
++
++    cairo_scaled_font_text_extents(_scaled, "H", &extents);
++    if (cairo_scaled_font_status(_scaled) == CAIRO_STATUS_SUCCESS
++        && extents.y_bearing < 0)
++      {
++        capHeight = -extents.y_bearing;
++      }
++    cairo_scaled_font_text_extents(_scaled, "x", &extents);
++    if (cairo_scaled_font_status(_scaled) == CAIRO_STATUS_SUCCESS
++        && extents.y_bearing < 0)
++      {
++        xHeight = -extents.y_bearing;
++      }
++    else
++      {
++        xHeight = ascender * 0.6;
++      }
++  }
+   maximumAdvancement = NSMakeSize(font_extents.max_x_advance, 
+                                   font_extents.max_y_advance);
+   fontBBox = NSMakeRect(0, descender, 

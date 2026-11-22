@@ -9,13 +9,13 @@ jpeg
 tiff
 png
 lcms2
-ImageMagick
 libxml
 libxslt
 gnutls
 libffi
 icu4c
 cairo
+sane-backends--
 flite
 freeglut
 giflib

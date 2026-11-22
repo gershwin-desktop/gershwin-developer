@@ -1,0 +1,30 @@
+diff --git a/Source/NSOpenPanel.m b/Source/NSOpenPanel.m
+index 1b5d0848c..6681eb0fc 100644
+--- a/Source/NSOpenPanel.m
++++ b/Source/NSOpenPanel.m
+@@ -619,11 +619,23 @@ static NSOpenPanel *_gs_gui_open_panel = nil;
+   s = [[[aNotification userInfo] objectForKey: @"NSFieldEditor"] string];
+ 
+   /*
+-   * If the user typed in an absolute path, display it.
++   * If the user typed in an absolute path, display it.  A path to a file
++   * shows the folder it is in and goes on to select the file by its name,
++   * so that OK, and Return, choose it.
+    */
+   if ([s isAbsolutePath] == YES)
+     {
+-      [self setDirectory: s];
++      BOOL isDir;
++      NSString *dir = s;
++
++      if (![[NSFileManager defaultManager] fileExistsAtPath: s
++                                               isDirectory: &isDir]
++          || !isDir)
++        dir = [s stringByDeletingLastPathComponent];
++      /* Reloading the browser at every key typed would drop the selection. */
++      if (![[dir stringByStandardizingPath] isEqualToString: _directory])
++        [self setDirectory: dir];
++      s = (dir == s) ? @"" : [s lastPathComponent];
+     }
+ 
+   sLength = [s length];
