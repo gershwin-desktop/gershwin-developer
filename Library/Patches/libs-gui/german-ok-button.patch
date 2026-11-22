@@ -1,0 +1,12 @@
+diff --git a/Resources/German.lproj/Localizable.strings b/Resources/German.lproj/Localizable.strings
+--- a/Resources/German.lproj/Localizable.strings
++++ b/Resources/German.lproj/Localizable.strings
+@@ -61,7 +61,7 @@
+ /* File: ../Source/NSPrintOperation.m:678 */
+ /* File: ../Source/NSPrintPanel.m:408 */
+ /* File: ../Source/NSSavePanel.m:335 */
+-"OK" = "Ok";
++"OK" = "OK";
+ 
+ /* File: ../Source/NSAlert.m:389 */
+ /* File: ../Source/NSDocument.m:485 */
